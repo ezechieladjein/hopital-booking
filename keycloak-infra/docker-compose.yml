@@ -1,0 +1,45 @@
+version: '3.8'
+
+networks:
+  keycloak_network:
+    driver: bridge
+
+services:
+  # Base de données isolée pour Keycloak
+  keycloak_db:
+    image: mysql:8.0
+    container_name: keycloak_mysql_db
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - keycloak_db_data:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: keycloak_db
+      MYSQL_USER: keycloak_admin
+      MYSQL_PASSWORD: KeycloakPassword123*
+      MYSQL_ROOT_PASSWORD: RootKeycloakPassword123*
+    ports:
+      - "3307:3306" # On la mappe sur le port 3307 pour ne pas entrer en conflit avec ton MySQL principal (3306)
+    networks:
+      - keycloak_network
+
+  # Le serveur Keycloak
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak_server
+    command: start-dev
+    environment:
+      KC_DB: mysql
+      KC_DB_URL: jdbc:mysql://keycloak_db:3306/keycloak_db
+      KC_DB_USERNAME: keycloak_admin
+      KC_DB_PASSWORD: KeycloakPassword123*
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: AdminPassword123*
+    ports:
+      - "8085:8080"
+    depends_on:
+      - keycloak_db
+    networks:
+      - keycloak_network
+
+volumes:
+  keycloak_db_data:

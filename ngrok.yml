@@ -1,0 +1,11 @@
+version: "3"
+agent:
+  authtoken: "3GGz0hioDgip8xvLg3TfZsd3sQ9_7cWMSyDRPZyWAei74JNjn"
+tunnels:
+  laravel:
+    proto: http
+    addr: 8000
+  keycloak:
+    proto: http
+    addr: 8085
+
