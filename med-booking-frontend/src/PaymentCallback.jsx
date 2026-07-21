@@ -1,89 +1,79 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
 export default function PaymentCallback() {
-  const [status, setStatus] = useState('processing'); // processing | success | error
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [statusMessage, setStatusMessage] = useState("Vérification du paiement en cours...");
+  const [isError, setIsError] = useState(false);
 
   useEffect(() => {
-    // 1. Récupérer les paramètres renvoyés par FedaPay dans l'URL
-    const params = new URLSearchParams(window.location.search);
-    const appointmentId = params.get('appointment_id');
-    const transactionStatus = params.get('status'); // FedaPay renvoie 'approved' si payé
+    const appointmentId = searchParams.get("appointment_id");
+    const transactionId = searchParams.get("id"); // Envoyé par FedaPay dans l'URL ?id=xxx
 
-    if (appointmentId && transactionStatus) {
-      // 2. Notifier notre backend Laravel pour mettre à jour la base de données
-      fetch('http://localhost:8000/api/payments/callback-handler', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          appointment_id: appointmentId,
-          status: transactionStatus
-        })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setStatus('success');
-          } else {
-            setStatus('error');
-          }
-        })
-        .catch(() => setStatus('error'));
-    } else {
-      setStatus('error');
+    if (!appointmentId || !transactionId) {
+      setStatusMessage("Informations de paiement manquantes.");
+      setIsError(true);
+      return;
     }
-  }, []);
+
+    const token = localStorage.getItem("token"); // Récupère le jeton de connexion
+
+    fetch("http://localhost:8000/api/payments/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify({
+        appointment_id: appointmentId,
+        id: transactionId,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setStatusMessage("Paiement validé avec succès ! Redirection...");
+          setTimeout(() => {
+            navigate("/patient/appointments"); // Redirige vers la liste des RDV
+          }, 2000);
+        } else {
+          setIsError(true);
+          setStatusMessage(data.message || "Échec de la validation du paiement.");
+        }
+      })
+      .catch((err) => {
+        console.error("Erreur de vérification :", err);
+        setIsError(true);
+        setStatusMessage("Impossible de communiquer avec le serveur.");
+      });
+  }, [searchParams, navigate]);
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA] flex items-center justify-center p-6 font-['Poppins']">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-        
-        {status === 'processing' && (
-          <div>
-            <div className="w-12 h-12 border-4 border-[#1565C0] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <h3 className="text-lg font-bold text-[#0D1B3D]">Validation de votre paiement...</h3>
-            <p className="text-sm text-gray-500 mt-1">Veuillez ne pas fermer cette page.</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 font-['Poppins'] p-4">
+      <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-md w-full text-center">
+        {!isError ? (
+          <div className="space-y-4">
+            <div className="w-12 h-12 border-4 border-[#0D1B3D] border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <h2 className="text-lg font-bold text-[#0D1B3D]">Confirmation en cours</h2>
+            <p className="text-sm text-gray-600">{statusMessage}</p>
           </div>
-        )}
-
-        {status === 'success' && (
-          <div>
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
-              ✓
+        ) : (
+          <div className="space-y-4">
+            <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto text-xl font-bold">
+              ✕
             </div>
-            <h3 className="text-xl font-bold text-[#0D1B3D]">Paiement Réussi !</h3>
-            <p className="text-sm text-gray-500 mt-2">
-              Votre consultation est maintenant validée et réglée. Vous pouvez retourner à votre espace personnel.
-            </p>
+            <h2 className="text-lg font-bold text-red-600">Erreur de paiement</h2>
+            <p className="text-sm text-gray-600">{statusMessage}</p>
             <button
-              onClick={() => window.location.href = '/'}
-              className="mt-6 bg-[#0D1B3D] text-white text-sm font-bold px-6 py-2.5 rounded-xl hover:bg-opacity-90 transition"
+              onClick={() => navigate("/patient/appointments")}
+              className="mt-4 bg-[#0D1B3D] text-white text-xs font-bold px-5 py-2.5 rounded-xl"
             >
-              Retour à l'accueil
+              Retourner à mes rendez-vous
             </button>
           </div>
         )}
-
-        {status === 'error' && (
-          <div>
-            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
-              ✗
-            </div>
-            <h3 className="text-xl font-bold text-red-700">Échec du paiement</h3>
-            <p className="text-sm text-gray-500 mt-2">
-              Une erreur s'est produite ou la transaction a été annulée. Aucun montant n'a été débité.
-            </p>
-            <button
-              onClick={() => window.location.href = '/'}
-              className="mt-6 bg-[#0D1B3D] text-white text-sm font-bold px-6 py-2.5 rounded-xl hover:bg-opacity-90 transition"
-            >
-              Réessayer
-            </button>
-          </div>
-        )}
-
       </div>
     </div>
   );

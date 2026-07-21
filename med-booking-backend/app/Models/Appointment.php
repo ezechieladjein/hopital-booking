@@ -15,11 +15,11 @@ class Appointment extends Model
         'base_price',
         'amount_to_pay',
         'has_insurance',
-        // 🚀 AJOUTS INDISPENSABLES : Autoriser l'écriture des infos d'assurance
         'insurance_name',
         'insurance_policy_number',
         'insurance_document_path',
-        'insurance_coverage_rate', // Nécessaire aussi pour quand la secrétaire mettra à jour le taux !
+        'insurance_coverage_rate',
+        'cancellation_reason',
     ];
 
     /**

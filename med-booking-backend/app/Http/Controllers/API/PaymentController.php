@@ -4,23 +4,24 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use FedaPay\FedaPay;
 use FedaPay\Transaction;
+use Illuminate\Support\Facades\DB;
 
 class PaymentController extends Controller
 {
     public function __construct()
     {
-        // Initialisation automatique de la configuration FedaPay
         FedaPay::setApiKey(config('services.fedapay.secret'));
         FedaPay::setEnvironment(config('services.fedapay.environment', 'sandbox'));
     }
 
     /**
-     * Génère un lien de paiement FedaPay pour un rendez-vous spécifique.
-     * URL : POST /api/payments/initiate
+     * Génère un lien de paiement FedaPay
+     * POST /api/payments/initiate
      */
     public function initiatePayment(Request $request): JsonResponse
     {
@@ -29,10 +30,8 @@ class PaymentController extends Controller
         ]);
 
         try {
-            // 1. Récupérer le rendez-vous avec les informations du patient
             $appointment = Appointment::with('patient')->findOrFail($request->appointment_id);
 
-            // Sécurité : s'assurer que le montant à payer est supérieur à 0
             if ($appointment->amount_to_pay <= 0) {
                 return response()->json([
                     'success' => false,
@@ -40,12 +39,16 @@ class PaymentController extends Controller
                 ], 400);
             }
 
-            // 2. Créer la transaction FedaPay
+            // Détection dynamique de l'URL frontend du client (gestion des ports Vite 5173, 5174, etc.)
+            $origin = $request->header('Origin') ?? $request->header('Referer');
+            $frontendUrl = rtrim($origin ?? env('FRONTEND_URL', 'http://localhost:5173'), '/');
+
+            // 1. Créer la transaction sur FedaPay
             $transaction = Transaction::create([
                 'description' => "Règlement consultation Medigo - RDV #{$appointment->id}",
                 'amount' => (int) $appointment->amount_to_pay,
-                'currency' => ['iso' => 'XOF'], // FCFA
-                'callback_url' => "http://localhost:5173/payment-callback?appointment_id={$appointment->id}", // Retour vers le frontend React
+                'currency' => ['iso' => 'XOF'],
+                'callback_url' => "{$frontendUrl}/payment-callback?appointment_id={$appointment->id}",
                 'customer' => [
                     'firstname' => $appointment->patient->prenom ?? 'Patient',
                     'lastname' => $appointment->patient->nom ?? 'Medigo',
@@ -53,12 +56,20 @@ class PaymentController extends Controller
                 ]
             ]);
 
-            // 3. Générer le jeton de paiement pour obtenir l'URL de redirection
+            // 2. Enregistrer la transaction en attente dans la table local `payments`
+            Payment::create([
+                'appointment_id' => $appointment->id,
+                'fedapay_transaction_id' => $transaction->id,
+                'payment_method' => 'mobile_money', // valeur par défaut, mise à jour au callback
+                'amount_paid' => (int) $appointment->amount_to_pay,
+                'status' => 'pending',
+            ]);
+
             $token = $transaction->generateToken();
 
             return response()->json([
                 'success' => true,
-                'payment_url' => $token->url, // URL sur laquelle envoyer le patient
+                'payment_url' => $token->url,
                 'transaction_id' => $transaction->id
             ], 200);
 
@@ -71,39 +82,111 @@ class PaymentController extends Controller
     }
 
     /**
-     * Valide le paiement après redirection (Callback simple pour le dev local)
-     * URL : POST /api/payments/callback-handler
+     * Vérifie et valide le paiement auprès de l'API FedaPay
+     * POST /api/payments/verify
      */
-    public function callbackHandler(Request $request): JsonResponse
+    public function verifyPayment(Request $request): JsonResponse
     {
         $request->validate([
             'appointment_id' => 'required|exists:appointments,id',
-            'status' => 'required|string' // Reçu de FedaPay (ex: "approved")
+            'id' => 'required' // ID de transaction envoyé par FedaPay dans l'URL ?id=xxx
         ]);
 
         try {
+            DB::beginTransaction();
+
+            // 1. Récupérer la transaction en direct depuis les serveurs FedaPay
+            $fedapayTx = Transaction::retrieve($request->id);
+            $payment = Payment::where('fedapay_transaction_id', $request->id)->firstOrFail();
             $appointment = Appointment::findOrFail($request->appointment_id);
 
-            if ($request->status === 'approved') {
+            // 2. Sécurité : Vérifier le statut réel de la transaction auprès de FedaPay
+            if ($fedapayTx->status === 'approved') {
+                
+                // Mise à jour du paiement local
+                $payment->update([
+                    'status' => 'approved',
+                    'payment_method' => $fedapayTx->mode ?? 'mobile_money',
+                    'fedapay_receipt_url' => $fedapayTx->receipt_url ?? null,
+                ]);
+
+                // Validation du rendez-vous
                 $appointment->update([
                     'status' => 'CONFIRME'
                 ]);
 
+                DB::commit();
+
                 return response()->json([
                     'success' => true,
-                    'message' => 'Le rendez-vous a été marqué comme payé et validé avec succès !'
+                    'message' => 'Paiement confirmé et rendez-vous validé !'
                 ]);
+            } else {
+                $payment->update(['status' => 'declined']);
+                DB::commit();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Le paiement n\'a pas été approuvé (statut : ' . $fedapayTx->status . ').'
+                ], 400);
             }
 
+        } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Le paiement n\'a pas pu être approuvé.'
-            ], 400);
+                'message' => 'Erreur de vérification : ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Effectuer un remboursement (Refund)
+     * POST /api/payments/refund
+     */
+    public function refundPayment(Request $request): JsonResponse
+    {
+        $request->validate([
+            'appointment_id' => 'required|exists:appointments,id',
+            'reason' => 'nullable|string'
+        ]);
+
+        try {
+            $payment = Payment::where('appointment_id', $request->appointment_id)
+                ->where('status', 'approved')
+                ->firstOrFail();
+
+            // Appel à l'API FedaPay pour effectuer le remboursement
+            $transaction = Transaction::retrieve($payment->fedapay_transaction_id);
+            
+            // FedaPay Refund API call
+            $transaction->refund();
+
+            DB::beginTransaction();
+
+            $payment->update([
+                'status' => 'refunded',
+                'refunded_amount' => $payment->amount_paid
+            ]);
+
+            $appointment = Appointment::findOrFail($request->appointment_id);
+            $appointment->update([
+                'status' => 'ANNULE_REMBOURSE',
+                'cancellation_reason' => $request->reason ?? 'Remboursement effectué.'
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Remboursement effectué avec succès.'
+            ]);
 
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors du traitement du retour : ' . $e->getMessage()
+                'message' => 'Erreur lors du remboursement : ' . $e->getMessage()
             ], 500);
         }
     }

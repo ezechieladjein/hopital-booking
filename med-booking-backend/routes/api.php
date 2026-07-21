@@ -5,24 +5,35 @@ use App\Http\Controllers\API\MedicalController;
 use App\Http\Controllers\API\SecretaryController;
 use App\Http\Controllers\API\PaymentController;
 
-// URL finale : http://127.0.0.1:8000/api/catalog
+// Catalogue & Créneaux publics
 Route::get('/catalog', [MedicalController::class, 'getCatalog']);
-
-// URL finale : http://127.0.0.1:8000/api/doctors/{id}/slots?date=YYYY-MM-DD
 Route::get('/doctors/{id}/slots', [MedicalController::class, 'getDoctorSlots']);
-
-// URL : http://127.0.0.1:8000/api/appointments
+Route::get('/doctors/{doctor}/available-days', [MedicalController::class, 'getAvailableDays']);
 Route::post('/appointments', [MedicalController::class, 'bookAppointment']);
 
-Route::get('/doctors/{doctor}/available-days', [MedicalController::class, 'getAvailableDays']);
-
-// Routes dédiées à l'espace Secrétaire (en local pour le moment)
+// Espace Secrétariat
 Route::prefix('secretary')->group(function () {
+    // Rendez-vous & Médecins
     Route::get('/appointments', [SecretaryController::class, 'index']);
-    Route::post('/validate-insurance', [SecretaryController::class, 'validateInsurance']);
+    Route::get('/doctors', [SecretaryController::class, 'getDoctors']);
     Route::post('/appointments/{id}/status', [SecretaryController::class, 'updateStatus']);
+
+    // Traitement des Assurances
+    Route::post('/validate-insurance', [SecretaryController::class, 'validateInsurance']);
+    Route::post('/reject-insurance', [SecretaryController::class, 'rejectInsurance']);
+
+    // Indisponibilités & Blocages ponctuels
+    Route::get('/doctors/{doctorId}/unavailabilities', [SecretaryController::class, 'getDoctorUnavailabilities']);
+    Route::post('/unavailabilities/block', [SecretaryController::class, 'blockSlotsOrDay']);
+    Route::post('/unavailabilities/{id}/unblock', [SecretaryController::class, 'unblockAvailability']);
+
+    // NOUVEAU : Emploi du temps récurrent (doctor_availabilities) & Génération de créneaux
+    Route::get('/doctors/{id}/availabilities', [SecretaryController::class, 'getDoctorAvailabilities']);
+    Route::post('/doctors/{id}/availabilities', [SecretaryController::class, 'setDoctorAvailabilities']);
+    Route::post('/slots/generate', [SecretaryController::class, 'generateDoctorSlots']);
 });
 
-// Routes de paiement FedaPay
+// Paiements FedaPay
 Route::post('/payments/initiate', [PaymentController::class, 'initiatePayment']);
-Route::post('/payments/callback-handler', [PaymentController::class, 'callbackHandler']);
+Route::post('/payments/verify', [PaymentController::class, 'verifyPayment']);
+Route::post('/payments/refund', [PaymentController::class, 'refundPayment']);
