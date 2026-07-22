@@ -3,8 +3,9 @@ import PatientBooking from './PatientBooking';
 import SecretaryDashboard from './SecretaryDashboard';
 import PatientAppointmentsList from './PatientAppointmentsList';
 import PaymentCallback from './PaymentCallback';
+import AdminDashboard from './AdminDashboard';
 
-// 🛡️ Filet de sécurité anti-page blanche
+// Filet de sécurité anti-page blanche
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -87,15 +88,23 @@ export default function App() {
             >
               Vue Secrétaire
             </button>
+            <button
+              onClick={() => setActiveRole('admin')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                activeRole === 'admin' 
+                  ? 'bg-white text-[#0D1B3D] shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              Vue Admin
+            </button>
           </div>
         </nav>
 
         {/* Contenu principal */}
         <main className="p-6 max-w-7xl mx-auto">
-          {activeRole === 'patient' ? (
+          {activeRole === 'patient' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* Formulaire de réservation à gauche */}
               <div className="lg:col-span-1 space-y-6">
                 <div className="text-center py-2">
                   <h1 className="text-2xl font-bold text-[#0D1B3D]">Prendre rendez-vous</h1>
@@ -104,14 +113,18 @@ export default function App() {
                 <PatientBooking onBookingSuccess={handleBookingSuccess} />
               </div>
 
-              {/* Historique des rendez-vous et paiement à droite */}
               <div className="lg:col-span-2 space-y-6">
                 <PatientAppointmentsList key={reloadTrigger} />
               </div>
-
             </div>
-          ) : (
+          )}
+
+          {activeRole === 'secretary' && (
             <SecretaryDashboard key={reloadTrigger} />
+          )}
+
+          {activeRole === 'admin' && (
+            <AdminDashboard key={reloadTrigger} />
           )}
         </main>
       </div>

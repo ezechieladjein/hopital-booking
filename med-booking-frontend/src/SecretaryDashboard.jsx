@@ -293,7 +293,7 @@ export default function SecretaryDashboard() {
               activeTab === 'appointments' ? 'bg-[#0D1B3D] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            📋 Rendez-vous ({appointments.length})
+            Rendez-vous ({appointments.length})
           </button>
           <button
             onClick={() => setActiveTab('doctors')}
@@ -301,7 +301,7 @@ export default function SecretaryDashboard() {
               activeTab === 'doctors' ? 'bg-[#0D1B3D] text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            👨‍⚕️ Médecins & Planning
+            Médecins & Planning
           </button>
         </div>
       </div>
@@ -312,7 +312,7 @@ export default function SecretaryDashboard() {
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-4">
             <input
               type="text"
-              placeholder="🔍 Patient, Docteur, Montant..."
+              placeholder="Patient, Docteur, Montant..."
               value={searchAppt}
               onChange={(e) => setSearchAppt(e.target.value)}
               className="px-4 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50"
@@ -477,7 +477,7 @@ export default function SecretaryDashboard() {
                     onClick={() => setShowGenSection(!showGenSection)}
                     className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-bold px-4 py-2 rounded-xl border border-indigo-200 transition flex items-center gap-2"
                   >
-                    ⚙️ {showGenSection ? 'Masquer la configuration des créneaux' : 'Configurer emploi du temps & générer créneaux'}
+                    {showGenSection ? 'Masquer la configuration des créneaux' : 'Configurer emploi du temps & générer créneaux'}
                   </button>
                 </div>
 
@@ -603,7 +603,7 @@ export default function SecretaryDashboard() {
                         onClick={() => handleBlockAction(true)}
                         className="bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold px-3 py-1.5 rounded-xl border border-red-200 transition"
                       >
-                        🚫 Bloquer toute la journée
+                        Bloquer toute la journée
                       </button>
                     </div>
                   </div>
@@ -618,7 +618,7 @@ export default function SecretaryDashboard() {
                         onClick={() => handleBlockAction(false)}
                         className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
                       >
-                        ⚠️ Bloquer la sélection
+                        Bloquer la sélection
                       </button>
                     </div>
                   )}
@@ -707,7 +707,7 @@ export default function SecretaryDashboard() {
                                     onClick={() => handleUnblock(u.id)}
                                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-[10px] font-bold transition"
                                   >
-                                    🔓 Débloquer
+                                    Débloquer
                                   </button>
                                 )}
                               </td>
@@ -721,7 +721,7 @@ export default function SecretaryDashboard() {
               </>
             ) : (
               <div className="bg-white p-12 rounded-2xl border border-gray-100 text-center text-gray-400 text-xs">
-                👈 Veuillez sélectionner un médecin dans la liste de gauche pour afficher son planning et ses indisponibilités.
+                Veuillez sélectionner un médecin dans la liste de gauche pour afficher son planning et ses indisponibilités.
               </div>
             )}
           </div>
@@ -752,7 +752,7 @@ export default function SecretaryDashboard() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-2 rounded-lg w-full justify-center transition border border-blue-100"
                 >
-                  📄 Consulter la pièce jointe
+                  Consulter la pièce jointe
                 </a>
               ) : (
                 <p className="text-xs text-amber-600 italic">Aucun document téléversé.</p>
