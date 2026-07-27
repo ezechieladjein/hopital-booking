@@ -49,10 +49,34 @@ export default function PatientBooking({ onBookingSuccess }) {
   );
 
   // Regrouper les créneaux disponibles du médecin par date
+  // Récupérer la date et l'heure actuelles
+  const now = new Date();
+  const todayStr = now.toISOString().split("T")[0]; // "YYYY-MM-DD"
+
+  // Format HH:MM actuel pour la comparaison
+  const currentHours = String(now.getHours()).padStart(2, "0");
+  const currentMinutes = String(now.getMinutes()).padStart(2, "0");
+  const currentTimeStr = `${currentHours}:${currentMinutes}`;
+
   const slotsByDate = {};
+
   if (currentDoctor && currentDoctor.slots) {
     currentDoctor.slots
-      .filter((slot) => slot.status === "Disponible")
+      .filter((slot) => {
+        // 1. Vérifier si le statut du créneau est 'Disponible'
+        if (slot.status !== "Disponible") return false;
+
+        // 2. Ignorer les dates antérieures à aujourd'hui
+        if (slot.date_consultation < todayStr) return false;
+
+        // 3. Si c'est aujourd'hui, vérifier que l'heure du créneau n'est pas passée
+        if (slot.date_consultation === todayStr) {
+          const slotStartTime = slot.start_time.substring(0, 5); // Ex: "14:30"
+          if (slotStartTime <= currentTimeStr) return false;
+        }
+
+        return true;
+      })
       .forEach((slot) => {
         if (!slotsByDate[slot.date_consultation]) {
           slotsByDate[slot.date_consultation] = [];
@@ -60,7 +84,6 @@ export default function PatientBooking({ onBookingSuccess }) {
         slotsByDate[slot.date_consultation].push(slot);
       });
   }
-
   const availableDates = Object.keys(slotsByDate).sort();
 
   const handleConfirmBooking = async () => {
@@ -85,13 +108,10 @@ export default function PatientBooking({ onBookingSuccess }) {
     }
 
     try {
-      const response = await fetch(
-        "http://localhost:8000/api/appointments",
-        {
-          method: "POST",
-          body: formData, // Pas de headers de Content-Type, le navigateur s'en charge
-        },
-      );
+      const response = await fetch("http://localhost:8000/api/appointments", {
+        method: "POST",
+        body: formData, // Pas de headers de Content-Type, le navigateur s'en charge
+      });
 
       const data = await response.json();
       if (data.success) {

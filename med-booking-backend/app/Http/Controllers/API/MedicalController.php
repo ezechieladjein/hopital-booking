@@ -10,28 +10,43 @@ use App\Models\Doctor;
 use App\Models\User;
 use App\Models\Payment;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\AppointmentCreatedMail;
+use App\Mail\AppointmentUpdatedMail;
+use App\Mail\AppointmentCancelledMail;
 use FedaPay\FedaPay;
 use FedaPay\Transaction;
 use Carbon\Carbon;
+use Exception;
 
 class MedicalController extends Controller
 {
     /**
-     * Récupère le catalogue des spécialités et médecins actifs.
+     * Récupère le catalogue des spécialités et médecins actifs avec créneaux futurs uniquement.
      */
     public function getCatalog(): JsonResponse
     {
         try {
+            $now = Carbon::now();
+
             $catalog = Speciality::with([
                 'doctors' => fn($q) => $q->where('status', 'actif'),
                 'doctors.slots' => fn($q) => $q->where('status', 'Disponible')
+                    ->where(function ($query) use ($now) {
+                        $query->where('date_consultation', '>', $now->toDateString())
+                            ->orWhere(function ($sub) use ($now) {
+                                $sub->where('date_consultation', '=', $now->toDateString())
+                                    ->where('start_time', '>', $now->toTimeString());
+                            });
+                    })
             ])
-            ->where('is_active', true)
-            ->get();
+                ->where('is_active', true)
+                ->get();
 
             return response()->json(['success' => true, 'data' => $catalog], 200);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
@@ -39,23 +54,30 @@ class MedicalController extends Controller
     /**
      * Récupère les créneaux disponibles d'un médecin à une date donnée.
      */
-    public function getDoctorSlots(int $doctorId): JsonResponse
+    public function getDoctorSlots(Request $request, int $doctorId): JsonResponse
     {
-        $date = request()->query('date');
+        $date = $request->query('date');
 
         if (!$date) {
             return response()->json(['success' => false, 'message' => 'La date est requise.'], 400);
         }
 
         try {
-            $slots = Slot::where('doctor_id', $doctorId)
+            $now = Carbon::now();
+
+            $slotsQuery = Slot::where('doctor_id', $doctorId)
                 ->where('date_consultation', $date)
-                ->where('status', 'Disponible')
-                ->orderBy('start_time', 'asc')
-                ->get();
+                ->where('status', 'Disponible');
+
+            // Si c'est aujourd'hui, masquer les heures déjà dépassées
+            if ($date === $now->toDateString()) {
+                $slotsQuery->where('start_time', '>', $now->toTimeString());
+            }
+
+            $slots = $slotsQuery->orderBy('start_time', 'asc')->get();
 
             return response()->json(['success' => true, 'data' => $slots], 200);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
@@ -63,21 +85,21 @@ class MedicalController extends Controller
     /**
      * Enregistre un nouveau rendez-vous.
      */
-    public function bookAppointment(): JsonResponse
+    public function bookAppointment(Request $request): JsonResponse
     {
-        $slotId = request()->input('slot_id');
-        $keycloakUuid = request()->input('keycloak_uuid');
-        $email = request()->input('email');
-        $nom = request()->input('nom');
-        $prenom = request()->input('prenom');
+        $slotId = $request->input('slot_id');
+        $keycloakUuid = $request->input('keycloak_uuid');
+        $email = $request->input('email');
+        $nom = $request->input('nom');
+        $prenom = $request->input('prenom');
 
-        $hasInsurance = filter_var(request()->input('has_insurance'), FILTER_VALIDATE_BOOLEAN);
-        $insuranceName = request()->input('insurance_name');
-        $insurancePolicyNumber = request()->input('insurance_policy_number');
+        $hasInsurance = filter_var($request->input('has_insurance'), FILTER_VALIDATE_BOOLEAN);
+        $insuranceName = $request->input('insurance_name');
+        $insurancePolicyNumber = $request->input('insurance_policy_number');
 
         $documentPath = null;
-        if ($hasInsurance && request()->hasFile('insurance_document')) {
-            $path = request()->file('insurance_document')->store('insurances', 'public');
+        if ($hasInsurance && $request->hasFile('insurance_document')) {
+            $path = $request->file('insurance_document')->store('insurances', 'public');
             $documentPath = asset('storage/' . $path);
         }
 
@@ -107,7 +129,12 @@ class MedicalController extends Controller
 
             $basePrice = $slot->doctor->speciality->tarif ?? 25000;
 
-            $slot->update(['status' => 'Réservé temporairement']);
+            // Verrouillage du créneau avec les colonnes étendues
+            $slot->update([
+                'status' => 'Réservé temporairement',
+                'is_available' => false,
+                'reserved_until' => Carbon::now()->addHours(24)
+            ]);
 
             $initialStatus = $hasInsurance ? 'EN_ATTENTE_VALIDATION' : 'EN_ATTENTE_PAIEMENT';
 
@@ -125,6 +152,9 @@ class MedicalController extends Controller
             ]);
 
             DB::commit();
+            $appointment->load(['patient', 'slot.doctor', 'slot.doctor.speciality']);
+            // 📩 ENVOI EMAIL : Confirmation de réservation
+            Mail::to($user->email)->queue(new AppointmentCreatedMail($appointment));
 
             return response()->json([
                 'appointment_id' => $appointment->id,
@@ -135,73 +165,82 @@ class MedicalController extends Controller
                     'heure' => substr($slot->start_time, 0, 5),
                 ]
             ], 201);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
     /**
-     * Récupère tous les RDV d'un patient connecté.
+     * Récupère tous les RDV d'un patient connecté via son keycloak_uuid.
      */
     public function getPatientAppointments(string $keycloakUuid): JsonResponse
     {
         try {
-            $user = User::where('keycloak_uuid', $keycloakUuid)->first();
+            $user = User::where('keycloak_uuid', $keycloakUuid)
+                ->where('role', 'patient')
+                ->first();
 
             if (!$user) {
-                return response()->json(['success' => true, 'data' => [], 'user' => null]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Utilisateur introuvable.'
+                ], 404);
             }
 
-            $appointments = Appointment::with(['slot.doctor.speciality', 'payments'])
+            $appointments = Appointment::with(['slot.doctor.speciality'])
                 ->where('patient_id', $user->id)
-                ->orderBy('id', 'desc')
+                ->orderBy('created_at', 'desc')
                 ->get();
 
             return response()->json([
                 'success' => true,
-                'user' => $user,
+                'user' => [
+                    'nom' => $user->nom,
+                    'prenom' => $user->prenom,
+                    'email' => $user->email,
+                ],
                 'data' => $appointments
-            ]);
-        } catch (\Exception $e) {
+            ], 200);
+        } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
     /**
-     * Modification / Report d'un rendez-vous.
+     * Modification / Report complet d'un rendez-vous.
      */
-    public function rescheduleAppointment(int $id): JsonResponse
+    public function rescheduleAppointment(Request $request, int $id): JsonResponse
     {
-        $newSlotId = request()->input('slot_id');
+        $newSlotId = $request->input('slot_id');
+        $hasInsurance = filter_var($request->input('has_insurance'), FILTER_VALIDATE_BOOLEAN);
+        $insuranceName = $request->input('insurance_name');
+        $insurancePolicyNumber = $request->input('insurance_policy_number');
 
         if (!$newSlotId) {
-            return response()->json(['success' => false, 'message' => 'Le paramètre slot_id est requis.'], 400);
+            return response()->json(['success' => false, 'message' => 'Le créneau (slot_id) est requis.'], 400);
         }
 
         DB::beginTransaction();
 
         try {
-            $appointment = Appointment::with(['slot.doctor.speciality'])->find($id);
+            $appointment = Appointment::with(['patient', 'slot.doctor.speciality', 'slot.doctor'])->find($id);
 
             if (!$appointment) {
                 DB::rollBack();
                 return response()->json(['success' => false, 'message' => 'Rendez-vous introuvable.'], 404);
             }
 
-            $newSlot = Slot::lockForUpdate()->with('doctor.speciality')->find($newSlotId);
-
-            if (!$newSlot || $newSlot->status !== 'Disponible') {
-                DB::rollBack();
-                return response()->json(['success' => false, 'message' => 'Le créneau choisi n\'est pas disponible.'], 422);
-            }
-
             // CAS 1 : SI CONFIRMÉ (PAYÉ) -> Interdiction de changer de spécialité
             if ($appointment->status === 'CONFIRME') {
-                $currentSpecialityId = $appointment->slot->doctor->speciality_id;
-                $newSpecialityId = $newSlot->doctor->speciality_id;
+                $newSlot = Slot::lockForUpdate()->with('doctor.speciality')->find($newSlotId);
 
-                if ($currentSpecialityId !== $newSpecialityId) {
+                if (!$newSlot || $newSlot->status !== 'Disponible') {
+                    DB::rollBack();
+                    return response()->json(['success' => false, 'message' => 'Le créneau choisi n\'est plus disponible.'], 422);
+                }
+
+                if ($appointment->slot->doctor->speciality_id !== $newSlot->doctor->speciality_id) {
                     DB::rollBack();
                     return response()->json([
                         'success' => false,
@@ -209,78 +248,119 @@ class MedicalController extends Controller
                     ], 422);
                 }
 
-                $appointment->slot->update(['status' => 'Disponible']);
-                $newSlot->update(['status' => 'Réservé temporairement']);
+                // Libération de l'ancien créneau
+                if ($appointment->slot) {
+                    $this->releaseSlot($appointment->slot);
+                }
+
+                // Réservation du nouveau créneau (Conserve le statut CONFIRME)
+                $newSlot->update([
+                    'status' => 'Occupé',
+                    'is_available' => false,
+                    'reserved_until' => null,
+                ]);
+
                 $appointment->update(['slot_id' => $newSlot->id]);
 
                 DB::commit();
-                return response()->json(['success' => true, 'message' => 'Rendez-vous déplacé avec succès.'], 200);
+
+                // 📩 ENVOI EMAIL : Modification du rendez-vous
+                Mail::to($appointment->patient->email)->queue(new AppointmentUpdatedMail($appointment));
+
+                return response()->json(['success' => true, 'message' => 'Créneau modifié avec succès.'], 200);
             }
 
-            // CAS 2 : SI EN ATTENTE -> recalcul dynamique du prix et conservation du taux d'assurance
+            // CAS 2 : EN ATTENTE (VALIDATION OU PAIEMENT) -> Modification complète autorisée
             if (in_array($appointment->status, ['EN_ATTENTE_PAIEMENT', 'EN_ATTENTE_VALIDATION'])) {
-                if ($appointment->slot) {
-                    $appointment->slot->update(['status' => 'Disponible']);
+                $newSlot = Slot::lockForUpdate()->with('doctor.speciality')->find($newSlotId);
+
+                if (!$newSlot || ($newSlot->id !== $appointment->slot_id && $newSlot->status !== 'Disponible')) {
+                    DB::rollBack();
+                    return response()->json(['success' => false, 'message' => 'Le créneau choisi n\'est pas disponible.'], 422);
+                }
+
+                // Gestion du fichier d'assurance
+                $documentPath = $appointment->insurance_document_path;
+                if ($hasInsurance && $request->hasFile('insurance_document')) {
+                    $path = $request->file('insurance_document')->store('insurances', 'public');
+                    $documentPath = asset('storage/' . $path);
+                } elseif (!$hasInsurance) {
+                    $documentPath = null;
+                }
+
+                // Libérer l'ancien créneau si changement
+                if ($appointment->slot && $appointment->slot_id !== $newSlot->id) {
+                    $this->releaseSlot($appointment->slot);
+
+                    $newSlot->update([
+                        'status' => 'Réservé temporairement',
+                        'is_available' => false,
+                        'reserved_until' => Carbon::now()->addHours(24)
+                    ]);
                 }
 
                 $newBasePrice = $newSlot->doctor->speciality->tarif ?? $appointment->base_price;
                 $coverageRate = $appointment->insurance_coverage_rate ?? 0;
                 $newAmountToPay = $newBasePrice * (1 - ($coverageRate / 100));
 
-                $newSlot->update(['status' => 'Réservé temporairement']);
+                $newStatus = $hasInsurance ? 'EN_ATTENTE_VALIDATION' : 'EN_ATTENTE_PAIEMENT';
 
                 $appointment->update([
                     'slot_id' => $newSlot->id,
+                    'status' => $newStatus,
+                    'has_insurance' => $hasInsurance,
+                    'insurance_name' => $hasInsurance ? $insuranceName : null,
+                    'insurance_policy_number' => $hasInsurance ? $insurancePolicyNumber : null,
+                    'insurance_document_path' => $documentPath,
                     'base_price' => $newBasePrice,
                     'amount_to_pay' => (int) $newAmountToPay,
                 ]);
 
                 DB::commit();
 
+                // 📩 ENVOI EMAIL : Modification du rendez-vous
+                Mail::to($appointment->patient->email)->queue(new AppointmentUpdatedMail($appointment));
+
                 return response()->json([
                     'success' => true,
-                    'message' => 'Rendez-vous et montant recalculés avec succès.',
-                    'data' => [
-                        'base_price' => $newBasePrice,
-                        'amount_to_pay' => $newAmountToPay
-                    ]
+                    'message' => 'Rendez-vous et informations mis à jour avec succès.',
+                    'data' => $appointment
                 ], 200);
             }
 
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Ce rendez-vous ne peut plus être modifié.'], 400);
-
-        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Ce rendez-vous ne peut pas être modifié.'], 400);
+        } catch (Exception $e) {
             DB::rollBack();
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
     /**
-     * Annulation d'un rendez-vous.
+     * Annulation d'un rendez-vous par le patient.
      */
-    public function cancelAppointment(int $id): JsonResponse
+    public function cancelAppointment(Request $request, int $id): JsonResponse
     {
-        $reason = request()->input('reason', 'Annulé par le patient');
+        $reason = $request->input('reason', 'Annulé par le patient');
 
         DB::beginTransaction();
 
         try {
-            $appointment = Appointment::with(['slot', 'payments'])->find($id);
+            $appointment = Appointment::with(['patient', 'slot.doctor', 'payments'])->find($id);
 
             if (!$appointment) {
                 DB::rollBack();
                 return response()->json(['success' => false, 'message' => 'Rendez-vous introuvable.'], 404);
             }
 
-            if (in_array($appointment->status, ['ANNULE_PATIENT', 'ANNULE_HOPITAL'])) {
+            if (in_array($appointment->status, ['ANNULE_PATIENT', 'ANNULE_HOPITAL', 'EXPIRE'])) {
                 DB::rollBack();
-                return response()->json(['success' => false, 'message' => 'Rendez-vous déjà annulé.'], 400);
+                return response()->json(['success' => false, 'message' => 'Rendez-vous déjà annulé ou expiré.'], 400);
             }
 
-            // Libération du créneau
+            // Libération conditionnelle du créneau selon la date/heure
             if ($appointment->slot) {
-                $appointment->slot->update(['status' => 'Disponible']);
+                $this->releaseSlot($appointment->slot);
             }
 
             // CAS 1 : Non payé -> Annulation directe sans remboursement
@@ -291,6 +371,10 @@ class MedicalController extends Controller
                 ]);
 
                 DB::commit();
+
+                // 📩 ENVOI EMAIL : Annulation par le patient
+                Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
+
                 return response()->json(['success' => true, 'message' => 'Rendez-vous annulé avec succès.'], 200);
             }
 
@@ -305,13 +389,17 @@ class MedicalController extends Controller
                     ]);
 
                     DB::commit();
+
+                    // 📩 ENVOI EMAIL : Annulation par le patient
+                    Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
+
                     return response()->json([
                         'success' => true,
                         'message' => 'Rendez-vous annulé. Aucun remboursement n\'est appliqué le jour même.'
                     ], 200);
                 }
 
-                // Remboursement 100% via FedaPay
+                // Remboursement via FedaPay
                 $approvedPayment = $appointment->payments()->where('status', 'approved')->first();
 
                 if ($approvedPayment) {
@@ -334,6 +422,9 @@ class MedicalController extends Controller
 
                 DB::commit();
 
+                // 📩 ENVOI EMAIL : Annulation par le patient
+                Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Rendez-vous annulé et remboursement à 100% initié.'
@@ -342,9 +433,26 @@ class MedicalController extends Controller
 
             DB::rollBack();
             return response()->json(['success' => false, 'message' => 'Statut non annulable.'], 400);
-
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Récupère les données du profil patient.
+     */
+    public function getProfile($keycloakUuid): JsonResponse
+    {
+        try {
+            $user = User::where('keycloak_uuid', $keycloakUuid)->first();
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'Profil non trouvé.'], 404);
+            }
+
+            return response()->json(['success' => true, 'data' => $user], 200);
+        } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
@@ -352,36 +460,75 @@ class MedicalController extends Controller
     /**
      * Mise à jour du profil du patient.
      */
-    public function updateProfile(string $keycloakUuid): JsonResponse
+    public function updateProfile(Request $request, $keycloakUuid): JsonResponse
     {
         try {
-            $user = User::where('keycloak_uuid', $keycloakUuid)->firstOrFail();
+            $user = User::firstOrCreate(
+                ['keycloak_uuid' => $keycloakUuid],
+                ['role' => 'patient']
+            );
 
-            $user->update([
-                'nom' => request()->input('nom', $user->nom),
-                'prenom' => request()->input('prenom', $user->prenom),
-                'email' => request()->input('email', $user->email),
+            $validated = $request->validate([
+                'nom' => 'required|string|max:255',
+                'prenom' => 'required|string|max:255',
+                'email' => 'required|email|max:255|unique:users,email,' . $user->id,
+                'telephone' => 'nullable|string|max:50',
+                'age' => 'nullable|integer|min:0|max:120',
+                'sexe' => 'nullable|in:M,F',
             ]);
+
+            $user->update($validated);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Profil mis à jour avec succès.',
                 'data' => $user
-            ]);
-        } catch (\Exception $e) {
+            ], 200);
+        } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
+    /**
+     * Récupère les jours ayant au moins un créneau disponible et futur pour un médecin.
+     */
     public function getAvailableDays(Doctor $doctor): JsonResponse
     {
-        $days = $doctor->slots()
-            ->where('status', 'Disponible')
-            ->orderBy('date_consultation', 'asc')
-            ->pluck('date_consultation')
-            ->unique()
-            ->values();
+        try {
+            $now = Carbon::now();
 
-        return response()->json(['success' => true, 'data' => $days]);
+            $days = $doctor->slots()
+                ->where('status', 'Disponible')
+                ->where(function ($query) use ($now) {
+                    $query->where('date_consultation', '>', $now->toDateString())
+                        ->orWhere(function ($sub) use ($now) {
+                            $sub->where('date_consultation', '=', $now->toDateString())
+                                ->where('start_time', '>', $now->toTimeString());
+                        });
+                })
+                ->orderBy('date_consultation', 'asc')
+                ->pluck('date_consultation')
+                ->unique()
+                ->values();
+
+            return response()->json(['success' => true, 'data' => $days], 200);
+        } catch (Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Helper réutilisable pour libérer un créneau en vérifiant si la date/heure est passée.
+     */
+    private function releaseSlot(Slot $slot): void
+    {
+        $slotStart = Carbon::parse("{$slot->date_consultation} {$slot->start_time}");
+        $isFuture = $slotStart->isFuture();
+
+        $slot->update([
+            'status' => $isFuture ? 'Disponible' : 'Indisponible',
+            'is_available' => $isFuture,
+            'reserved_until' => null,
+        ]);
     }
 }

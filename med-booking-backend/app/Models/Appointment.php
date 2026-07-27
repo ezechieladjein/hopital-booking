@@ -22,20 +22,18 @@ class Appointment extends Model
         'cancellation_reason',
     ];
 
-    /**
-     * Relation avec le créneau horaire
-     */
     public function slot(): BelongsTo
     {
-        // On s'assure d'apporter le Slot
-        return $this->belongsTo(Slot::class);
+        return $this->belongsTo(Slot::class, 'slot_id');
     }
 
-    /**
-     * 🚀 AJOUT CRUCIAL : Relie le rendez-vous au Patient (qui est dans la table Users)
-     */
     public function patient(): BelongsTo
     {
         return $this->belongsTo(User::class, 'patient_id');
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class);
     }
 }

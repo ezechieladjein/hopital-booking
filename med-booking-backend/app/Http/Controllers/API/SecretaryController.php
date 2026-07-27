@@ -12,6 +12,10 @@ use App\Services\SlotGeneratorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\AppointmentCancelledMail;
+use App\Mail\AppointmentRefusedMail;
+use App\Mail\InsuranceValidatedMail;
 
 class SecretaryController extends Controller
 {
@@ -21,7 +25,8 @@ class SecretaryController extends Controller
     public function index(): JsonResponse
     {
         try {
-            $appointments = Appointment::with(['patient', 'slot.doctor.speciality'])
+            // Ajout de 'slot.doctor' pour récupérer le nom/prénom du médecin
+            $appointments = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
                 ->orderBy('created_at', 'desc')
                 ->get();
 
@@ -47,26 +52,48 @@ class SecretaryController extends Controller
             'insurance_coverage_rate' => 'required|integer|min:0|max:100',
         ]);
 
+        DB::beginTransaction();
         try {
-            $appointment = Appointment::findOrFail($request->input('appointment_id'));
+            // Chargement explicite du patient et des relations du slot pour le mail
+            $appointment = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
+                ->findOrFail($request->input('appointment_id'));
 
             $coverageRate = (int) $request->input('insurance_coverage_rate');
             $basePrice = $appointment->base_price;
             $amountToPay = $basePrice * ((100 - $coverageRate) / 100);
 
+            // Si couverture 100%, pas besoin de paiement -> Statut CONFIRME direct
+            $newStatus = ($coverageRate === 100) ? 'CONFIRME' : 'EN_ATTENTE_PAIEMENT';
+
             $appointment->update([
                 'insurance_coverage_rate' => $coverageRate,
                 'amount_to_pay'           => $amountToPay,
-                'status'                  => 'EN_ATTENTE_PAIEMENT',
+                'status'                  => $newStatus,
                 'cancellation_reason'     => null,
             ]);
 
+            if ($newStatus === 'CONFIRME' && $appointment->slot) {
+                $appointment->slot->update([
+                    'status' => 'Occupé',
+                    'is_available' => false,
+                    'reserved_until' => null,
+                ]);
+            }
+
+            DB::commit();
+
+            // 📩 ENVOI EMAIL : Assurance validée
+            Mail::to($appointment->patient->email)->queue(new InsuranceValidatedMail($appointment));
+
             return response()->json([
                 'success' => true,
-                'message' => 'Assurance validée ! Reste à payer calculé.',
+                'message' => $coverageRate === 100
+                    ? 'Assurance à 100% validée. Rendez-vous confirmé !'
+                    : 'Assurance validée ! Reste à payer calculé.',
                 'data' => $appointment
             ], 200);
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
@@ -82,14 +109,19 @@ class SecretaryController extends Controller
         ]);
 
         try {
-            $appointment = Appointment::findOrFail($request->input('appointment_id'));
+            // Chargement de la relation 'patient' pour l'envoi du mail
+            $appointment = Appointment::with(['patient', 'slot.doctor'])
+                ->findOrFail($request->input('appointment_id'));
 
             $appointment->update([
                 'insurance_coverage_rate' => 0,
                 'amount_to_pay'           => $appointment->base_price,
                 'status'                  => 'EN_ATTENTE_PAIEMENT',
-                'cancellation_reason'     => $request->input('reason'),
+                'cancellation_reason'     => 'Assurance refusée : ' . $request->input('reason'),
             ]);
+
+            // 📩 ENVOI EMAIL : Assurance refusée
+            Mail::to($appointment->patient->email)->queue(new AppointmentRefusedMail($appointment));
 
             return response()->json([
                 'success' => true,
@@ -125,12 +157,12 @@ class SecretaryController extends Controller
     }
 
     /**
-     * 5. Liste de tous les médecins avec leur spécialité.
+     * 5. Liste de tous les médecin avec leur spécialité.
      */
     public function getDoctors(): JsonResponse
     {
         try {
-            $doctors = Doctor::with('speciality')->get();
+            $doctors = Doctor::with(['user', 'speciality'])->get();
             return response()->json(['success' => true, 'data' => $doctors], 200);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
@@ -159,12 +191,12 @@ class SecretaryController extends Controller
     public function blockSlotsOrDay(Request $request): JsonResponse
     {
         $request->validate([
-            'doctor_id' => 'required|exists:doctors,id',
-            'date'      => 'required|date',
-            'type'      => 'nullable|string',
-            'reason'    => 'nullable|string',
-            'slot_ids'  => 'nullable|array',
-            'slot_ids.*'=> 'exists:slots,id'
+            'doctor_id'  => 'required|exists:doctors,id',
+            'date'       => 'required|date',
+            'type'       => 'nullable|string',
+            'reason'     => 'nullable|string',
+            'slot_ids'   => 'nullable|array',
+            'slot_ids.*' => 'exists:slots,id'
         ]);
 
         try {
@@ -202,14 +234,31 @@ class SecretaryController extends Controller
 
                 $slotIds = $slotsToBlock->pluck('id');
 
-                Slot::whereIn('id', $slotIds)->update(['status' => 'Indisponible']);
+                Slot::whereIn('id', $slotIds)->update([
+                    'status' => 'Indisponible',
+                    'is_available' => false,
+                ]);
 
-                Appointment::whereIn('slot_id', $slotIds)
+                // 📩 1. RÉCUPÉRATION DES RDV ET PATIENTS IMPACTÉS (Avec relations complètes)
+                $impactedAppointments = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
+                    ->whereIn('slot_id', $slotIds)
                     ->whereNotIn('status', ['ANNULE_PATIENT', 'ANNULE_HOPITAL', 'TERMINE'])
+                    ->get();
+
+                // 2. Mise à jour du statut des rendez-vous en base de données
+                Appointment::whereIn('id', $impactedAppointments->pluck('id'))
                     ->update([
                         'status' => 'ANNULE_HOPITAL',
                         'cancellation_reason' => 'Absence / Urgence médicale'
                     ]);
+
+                // 📩 3. ENVOI DES E-MAILS AUX PATIENTS
+                foreach ($impactedAppointments as $appointment) {
+                    if ($appointment->patient && $appointment->patient->email) {
+                        Mail::to($appointment->patient->email)
+                            ->queue(new AppointmentCancelledMail($appointment));
+                    }
+                }
 
                 return response()->json([
                     'success' => true,
@@ -242,7 +291,10 @@ class SecretaryController extends Controller
                 Slot::where('doctor_id', $unavailability->doctor_id)
                     ->whereBetween('date_consultation', [$startDate, $endDate])
                     ->where('status', 'Indisponible')
-                    ->update(['status' => 'Disponible']);
+                    ->update([
+                        'status' => 'Disponible',
+                        'is_available' => true,
+                    ]);
 
                 return response()->json([
                     'success' => true,

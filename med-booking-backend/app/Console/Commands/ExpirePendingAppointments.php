@@ -1,40 +1,37 @@
 <?php
-
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Appointment;
-use App\Models\Slot;
-use Carbon\Carbon;
+use App\Mail\AppointmentExpiredMail;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class ExpirePendingAppointments extends Command
 {
-    /**
-     * Le nom et la signature de la commande Artisan.
-     *
-     * @var string
-     */
     protected $signature = 'appointments:expire-pending';
+    protected $description = 'Expire les rendez-vous en attente de paiement (24h ou créneau dépassé) et ajuste les créneaux.';
 
-    /**
-     * La description de la commande.
-     *
-     * @var string
-     */
-    protected $description = 'Expire les rendez-vous en attente de paiement depuis plus de 24h et libère les créneaux.';
-
-    /**
-     * Exécute la commande.
-     */
     public function handle()
     {
-        $expirationTime = Carbon::now()->subHours(24);
+        $expirationThreshold = Carbon::now()->subHours(24);
+        $now = Carbon::now();
 
-        // Récupération des rendez-vous concernés
-        $expiredAppointments = Appointment::where('status', 'EN_ATTENTE_PAIEMENT')
-            ->where('created_at', '<=', $expirationTime)
+        // Récupérer tous les RDV en attente de paiement ayant dépassé les 24h ou le créneau
+        $expiredAppointments = Appointment::with(['slot', 'patient'])
+            ->where('status', 'EN_ATTENTE_PAIEMENT')
+            ->where(function ($query) use ($expirationThreshold, $now) {
+                $query->where('created_at', '<=', $expirationThreshold)
+                      ->orWhereHas('slot', function ($slotQuery) use ($now) {
+                          $slotQuery->where('date_consultation', '<', $now->toDateString())
+                                    ->orWhere(function ($q) use ($now) {
+                                        $q->where('date_consultation', '=', $now->toDateString())
+                                          ->where('start_time', '<=', $now->toTimeString());
+                                    });
+                      });
+            })
             ->get();
 
         if ($expiredAppointments->isEmpty()) {
@@ -47,33 +44,43 @@ class ExpirePendingAppointments extends Command
         foreach ($expiredAppointments as $appointment) {
             DB::beginTransaction();
             try {
-                // 1. Mettre à jour le statut du rendez-vous
+                // 1. Mettre à jour le statut du RDV en BD
                 $appointment->update([
-                    'status' => 'ANNULE_EXPIRATION',
-                    'cancellation_reason' => 'Expiration automatique : délai de paiement dépassé (24h).'
+                    'status' => 'EXPIRE',
+                    'cancellation_reason' => 'Expiration automatique : délai de paiement dépassé (24h) ou créneau passé.'
                 ]);
 
-                // 2. Libérer le créneau associé s'il existe
-                if ($appointment->slot_id) {
-                    Slot::where('id', $appointment->slot_id)->update([
-                        'status' => 'Disponible',
-                        'is_available' => true
+                // 2. Mettre à jour le créneau associé
+                if ($appointment->slot) {
+                    $slot = $appointment->slot;
+                    $slotStart = Carbon::parse("{$slot->date_consultation} {$slot->start_time}");
+                    $isFuture = $slotStart->isFuture();
+
+                    $slot->update([
+                        'status' => $isFuture ? 'Disponible' : 'Indisponible',
+                        'is_available' => $isFuture,
+                        'reserved_until' => null,
                     ]);
+                }
+
+                // 3. Envoyer le mail au patient (si présent)
+                if ($appointment->patient && $appointment->patient->email) {
+                    Mail::to($appointment->patient->email)
+                        ->send(new AppointmentExpiredMail($appointment));
                 }
 
                 DB::commit();
                 $count++;
-
-                Log::info("RDV #{$appointment->id} expiré automatiquement (Créneau #{$appointment->slot_id} libéré).");
+                Log::info("RDV #{$appointment->id} marqué comme EXPIRE en BD et créneau libéré.");
 
             } catch (\Exception $e) {
                 DB::rollBack();
-                Log::error("Erreur lors de l'expiration du RDV #{$appointment->id} : " . $e->getMessage());
+                Log::error("Échec expiration RDV #{$appointment->id} : " . $e->getMessage());
                 $this->error("Erreur sur le RDV #{$appointment->id}");
             }
         }
 
-        $this->info("{$count} rendez-vous expiré(s) avec succès.");
+        $this->info("{$count} rendez-vous expiré(s) et synchronisé(s) en BD.");
         return Command::SUCCESS;
     }
 }

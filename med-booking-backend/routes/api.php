@@ -22,6 +22,9 @@ Route::post('/appointments', [MedicalController::class, 'bookAppointment']);
 Route::get('/patients/{keycloakUuid}/appointments', [MedicalController::class, 'getPatientAppointments']);
 Route::put('/appointments/{id}/reschedule', [MedicalController::class, 'rescheduleAppointment']);
 Route::post('/appointments/{id}/cancel', [MedicalController::class, 'cancelAppointment']);
+
+// Profil Patient (GET & PUT)
+Route::get('/patients/{keycloakUuid}/profile', [MedicalController::class, 'getProfile']);
 Route::put('/patients/{keycloakUuid}/profile', [MedicalController::class, 'updateProfile']);
 
 // --- Espace Secrétariat ---
@@ -50,11 +53,16 @@ Route::prefix('payments')->group(function () {
     Route::post('/initiate', [PaymentController::class, 'initiatePayment']);
     Route::post('/verify', [PaymentController::class, 'verifyPayment']);
     Route::post('/refund', [PaymentController::class, 'refundPayment']);
+    Route::post('/webhook', [PaymentController::class, 'handleWebhook'])
+    ->name('payments.webhook');
 });
+
+Route::get('/appointments/{appointment}/payment-status', [PaymentController::class, 'getPaymentStatus']);
 
 // --- Espace Administration ---
 Route::prefix('admin')->group(function () {
     Route::get('/stats', [AdminController::class, 'getStats']);
+    Route::get('/stats/confirmed-details', [AdminController::class, 'getConfirmedDetails']);
 
     Route::get('/specialities', [AdminController::class, 'getSpecialities']);
     Route::post('/specialities', [AdminController::class, 'storeSpeciality']);
