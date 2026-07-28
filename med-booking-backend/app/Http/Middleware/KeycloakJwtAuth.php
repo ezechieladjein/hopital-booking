@@ -4,7 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
+use App\Models\User;
 use Symfony\Component\HttpFoundation\Response;
 
 class KeycloakJwtAuth
@@ -30,6 +30,13 @@ class KeycloakJwtAuth
             return response()->json(['message' => 'Token expiré.'], 401);
         }
 
+        // 🔥 SYNC AUTOMATIQUE : Créer ou mettre à jour l'utilisateur en base
+        $user = User::syncFromKeycloak($payload);
+        
+        if (!$user) {
+            return response()->json(['message' => 'Impossible de synchroniser l\'utilisateur.'], 401);
+        }
+
         // Vérification des rôles si spécifiés dans le middleware
         if (!empty($roles)) {
             $userRoles = $payload['realm_access']['roles'] ?? [];
@@ -49,6 +56,7 @@ class KeycloakJwtAuth
 
         // Attacher les données de l'utilisateur à la requête
         $request->attributes->set('keycloak_user', $payload);
+        $request->attributes->set('user', $user);
 
         return $next($request);
     }

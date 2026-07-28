@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from './api'; // 🔥 AJOUT
 
 export default function PatientBooking({ onBookingSuccess }) {
   const [catalog, setCatalog] = useState([]);
@@ -16,13 +17,10 @@ export default function PatientBooking({ onBookingSuccess }) {
   const [loading, setLoading] = useState(true);
   const [bookingLoading, setBookingLoading] = useState(false);
 
-  // Charger les spécialités et médecins (le catalogue) depuis l'API
-  // Charger les spécialités et médecins (le catalogue) depuis l'API
+  // 🔥 Charger le catalogue avec apiFetch
   useEffect(() => {
-    fetch("http://localhost:8000/api/catalog")
-      .then((res) => res.json())
+    apiFetch('/catalog')
       .then((resData) => {
-        // 🚀 On extrait le tableau depuis "resData.data" car ton API renvoie { success: true, data: [...] }
         if (resData && Array.isArray(resData.data)) {
           setCatalog(resData.data);
         } else if (Array.isArray(resData)) {
@@ -49,11 +47,8 @@ export default function PatientBooking({ onBookingSuccess }) {
   );
 
   // Regrouper les créneaux disponibles du médecin par date
-  // Récupérer la date et l'heure actuelles
   const now = new Date();
-  const todayStr = now.toISOString().split("T")[0]; // "YYYY-MM-DD"
-
-  // Format HH:MM actuel pour la comparaison
+  const todayStr = now.toISOString().split("T")[0];
   const currentHours = String(now.getHours()).padStart(2, "0");
   const currentMinutes = String(now.getMinutes()).padStart(2, "0");
   const currentTimeStr = `${currentHours}:${currentMinutes}`;
@@ -63,18 +58,12 @@ export default function PatientBooking({ onBookingSuccess }) {
   if (currentDoctor && currentDoctor.slots) {
     currentDoctor.slots
       .filter((slot) => {
-        // 1. Vérifier si le statut du créneau est 'Disponible'
         if (slot.status !== "Disponible") return false;
-
-        // 2. Ignorer les dates antérieures à aujourd'hui
         if (slot.date_consultation < todayStr) return false;
-
-        // 3. Si c'est aujourd'hui, vérifier que l'heure du créneau n'est pas passée
         if (slot.date_consultation === todayStr) {
-          const slotStartTime = slot.start_time.substring(0, 5); // Ex: "14:30"
+          const slotStartTime = slot.start_time.substring(0, 5);
           if (slotStartTime <= currentTimeStr) return false;
         }
-
         return true;
       })
       .forEach((slot) => {
@@ -86,14 +75,14 @@ export default function PatientBooking({ onBookingSuccess }) {
   }
   const availableDates = Object.keys(slotsByDate).sort();
 
+  // 🔥 handleConfirmBooking avec apiFetch
   const handleConfirmBooking = async () => {
     if (!selectedSlot) return;
     setBookingLoading(true);
 
-    // Utilisation de FormData pour envoyer les données textuelles et le fichier physique
     const formData = new FormData();
     formData.append("slot_id", selectedSlot.id);
-    formData.append("keycloak_uuid", "sub-test-keycloak-12345"); // Simulé pour le dev local
+    formData.append("keycloak_uuid", "sub-test-keycloak-12345");
     formData.append("nom", "Houessou");
     formData.append("prenom", "Jean");
     formData.append("email", "jean.houessou@example.com");
@@ -108,22 +97,20 @@ export default function PatientBooking({ onBookingSuccess }) {
     }
 
     try {
-      const response = await fetch("http://localhost:8000/api/appointments", {
+      const data = await apiFetch('/appointments', {
         method: "POST",
-        body: formData, // Pas de headers de Content-Type, le navigateur s'en charge
+        body: formData,
       });
 
-      const data = await response.json();
       if (data.success) {
         alert("Votre réservation a été enregistrée avec succès !");
-        // Réinitialisation du formulaire
         setSelectedSlot(null);
         setSelectedDate("");
         setHasInsurance(false);
         setInsuranceName("");
         setInsurancePolicyNumber("");
         setInsuranceFile(null);
-        onBookingSuccess(); // Rafraîchit l'historique côté patient et secrétaire
+        onBookingSuccess();
       } else {
         alert(`Erreur : ${data.message}`);
       }

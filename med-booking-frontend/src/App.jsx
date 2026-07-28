@@ -43,31 +43,79 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
-  // Utiliser le statut global de Keycloak
   const [authenticated, setAuthenticated] = useState(keycloak.authenticated || false);
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState(window.keycloakError || null);
   const [reloadTrigger, setReloadTrigger] = useState(0);
-  const initAttempted = useRef(false);
+  const [userRoles, setUserRoles] = useState([]);
+  const [primaryRole, setPrimaryRole] = useState(null);
 
   // Fonction de connexion manuelle
   const handleLogin = () => {
-    console.log("🔐 Tentative de connexion vers Keycloak...");
+    console.log("Tentative de connexion vers Keycloak...");
     login();
   };
 
-  // Vérifier le statut d'authentification
+  // Vérifier le statut d'authentification et récupérer les rôles
   useEffect(() => {
-    // Vérifier si l'utilisateur est authentifié via Keycloak
     if (keycloak.authenticated !== undefined) {
       setAuthenticated(keycloak.authenticated);
     }
     
-    // Si une erreur globale existe
+    if (keycloak.authenticated) {
+      const roles = getRoles();
+      console.log("Rôles récupérés:", roles);
+      setUserRoles(roles);
+      
+      // Déterminer le rôle principal (priorité: admin > secretary > patient)
+      determinePrimaryRole(roles);
+    }
+    
     if (window.keycloakError) {
       setAuthError(window.keycloakError);
     }
   }, []);
+
+  // Fonction robuste pour récupérer les rôles
+  const getRoles = () => {
+    try {
+      const realmRoles = keycloak.realmAccess?.roles || [];
+      const clientRoles = keycloak.resourceAccess?.['med-booking-front']?.roles || [];
+      const tokenRealmRoles = keycloak.tokenParsed?.realm_access?.roles || [];
+      const tokenClientRoles = keycloak.tokenParsed?.resource_access?.['med-booking-front']?.roles || [];
+      
+      const combined = [...realmRoles, ...clientRoles, ...tokenRealmRoles, ...tokenClientRoles];
+      const uniqueRoles = [...new Set(combined.filter(role => role && role.trim() !== ''))];
+      
+      return uniqueRoles;
+    } catch (error) {
+      console.error("❌ Erreur lors de la récupération des rôles:", error);
+      return [];
+    }
+  };
+
+  // NOUVELLE FONCTION : Déterminer le rôle principal avec priorité
+  const determinePrimaryRole = (roles) => {
+    // Vérifier les rôles (insensible à la casse)
+    const hasAdmin = roles.some(r => r.toLowerCase() === 'admin');
+    const hasSecretary = roles.some(r => r.toLowerCase() === 'secretary');
+    const hasPatient = roles.some(r => r.toLowerCase() === 'patient');
+    
+    // PRIORITÉ : ADMIN > SECRETARY > PATIENT
+    if (hasAdmin) {
+      console.log("Rôle principal: ADMIN");
+      setPrimaryRole('admin');
+    } else if (hasSecretary) {
+      console.log("Rôle principal: SECRETARY");
+      setPrimaryRole('secretary');
+    } else if (hasPatient) {
+      console.log("Rôle principal: PATIENT");
+      setPrimaryRole('patient');
+    } else {
+      console.log("Aucun rôle valide trouvé");
+      setPrimaryRole(null);
+    }
+  };
 
   // Route spéciale pour PaymentCallback
   if (window.location.pathname.startsWith('/payment-callback')) {
@@ -127,16 +175,75 @@ export default function App() {
     );
   }
 
-  // Si authentifié, on peut afficher l'application
-  const userUuid = keycloak.tokenParsed?.sub;
-  const roles = keycloak.realmAccess?.roles || [];
+  // Si pas de rôle déterminé
+  if (!primaryRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F7FA] p-6">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-yellow-200 max-w-md w-full text-center">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-xl font-bold text-yellow-600 mb-2">Aucun rôle valide</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Votre compte ne possède aucun rôle valide (patient, secretary, admin).
+          </p>
+          <button
+            onClick={() => logout()}
+            className="w-full bg-red-50 text-red-600 py-2.5 rounded-xl font-bold text-sm hover:bg-red-100 transition border border-red-200"
+          >
+            Se déconnecter
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const isPatient = roles.includes('patient');
-  const isSecretary = roles.includes('secretary');
-  const isAdmin = roles.includes('admin');
+  // Si tout est bon, afficher l'application selon le rôle principal
+  const userUuid = keycloak.tokenParsed?.sub;
 
   const handleBookingSuccess = () => {
     setReloadTrigger(prev => prev + 1);
+  };
+
+  // AFFICHAGE CONDITIONNEL : UN SEUL RÔLE À LA FOIS
+  const renderContent = () => {
+    switch (primaryRole) {
+      case 'admin':
+        return (
+          <>
+            <AdminDashboard key={reloadTrigger} />
+          </>
+        );
+      
+      case 'secretary':
+        return (
+          <>
+            <SecretaryDashboard key={reloadTrigger} />
+          </>
+        );
+      
+      case 'patient':
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1 space-y-6">
+              <div className="text-center py-2">
+                <h1 className="text-2xl font-bold text-[#0D1B3D]">Prendre rendez-vous</h1>
+                <p className="text-gray-500 mt-1 text-sm">Vos soins, partout, à portée de main</p>
+              </div>
+              <PatientBooking onBookingSuccess={handleBookingSuccess} />
+              <PatientProfile keycloakUuid={userUuid} />
+            </div>
+
+            <div className="lg:col-span-2 space-y-6">
+              <PatientAppointmentsList 
+                key={reloadTrigger} 
+                keycloakUuid={userUuid} 
+              />
+            </div>
+          </div>
+        );
+      
+      default:
+        return null;
+    }
   };
 
   return (
@@ -160,16 +267,15 @@ export default function App() {
               <p className="text-sm font-bold text-[#0D1B3D]">
                 {keycloak.tokenParsed?.given_name || keycloak.tokenParsed?.preferred_username || 'Utilisateur'} 
                 <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 uppercase">
-                  {isAdmin ? 'Admin' : isSecretary ? 'Secrétaire' : isPatient ? 'Patient' : 'Inconnu'}
+                  {primaryRole === 'admin' ? 'Admin' : 
+                   primaryRole === 'secretary' ? 'Secrétaire' : 
+                   'Patient'}
                 </span>
               </p>
             </div>
 
             <button
-              onClick={() => {
-                console.log("👋 Déconnexion...");
-                logout();
-              }}
+              onClick={() => logout()}
               className="bg-red-50 text-red-600 hover:bg-red-100 px-3.5 py-2 rounded-lg text-xs font-semibold transition border border-red-100"
             >
               Déconnexion
@@ -177,48 +283,9 @@ export default function App() {
           </div>
         </nav>
 
-        {/* Contenu principal filtré selon le rôle */}
+        {/* Contenu principal - UN SEUL RÔLE AFFICHÉ */}
         <main className="p-6 max-w-7xl mx-auto">
-          {/* VUE PATIENT */}
-          {isPatient && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-1 space-y-6">
-                <div className="text-center py-2">
-                  <h1 className="text-2xl font-bold text-[#0D1B3D]">Prendre rendez-vous</h1>
-                  <p className="text-gray-500 mt-1 text-sm">Vos soins, partout, à portée de main</p>
-                </div>
-                <PatientBooking onBookingSuccess={handleBookingSuccess} />
-                <PatientProfile keycloakUuid={userUuid} />
-              </div>
-
-              <div className="lg:col-span-2 space-y-6">
-                <PatientAppointmentsList 
-                  key={reloadTrigger} 
-                  keycloakUuid={userUuid} 
-                />
-              </div>
-            </div>
-          )}
-
-          {/* VUE SECRÉTAIRE */}
-          {isSecretary && (
-            <SecretaryDashboard key={reloadTrigger} />
-          )}
-
-          {/* VUE ADMIN */}
-          {isAdmin && (
-            <AdminDashboard key={reloadTrigger} />
-          )}
-
-          {/* AUCUN RÔLE VALIDE */}
-          {!isPatient && !isSecretary && !isAdmin && (
-            <div className="bg-white p-8 rounded-2xl shadow-sm text-center border border-gray-100 max-w-lg mx-auto mt-12">
-              <h2 className="text-xl font-bold text-[#0D1B3D] mb-2">Rôle non attribué</h2>
-              <p className="text-sm text-gray-500">
-                Votre compte ne possède aucun rôle valide (Patient, Secrétaire ou Administrateur). Veuillez contacter le support.
-              </p>
-            </div>
-          )}
+          {renderContent()}
         </main>
       </div>
     </ErrorBoundary>

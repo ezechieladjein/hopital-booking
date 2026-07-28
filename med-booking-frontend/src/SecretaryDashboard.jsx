@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { apiFetch } from './api'; // 🔥 AJOUT
 
 const API_BASE_URL = "http://localhost:8000/api";
 const STORAGE_BASE_URL = "http://localhost:8000/storage";
@@ -14,7 +15,7 @@ const DAYS_MAP = {
 };
 
 export default function SecretaryDashboard() {
-  const [activeTab, setActiveTab] = useState("appointments"); // 'appointments' | 'doctors'
+  const [activeTab, setActiveTab] = useState("appointments");
 
   // --- RENDEZ-VOUS ---
   const [appointments, setAppointments] = useState([]);
@@ -35,34 +36,31 @@ export default function SecretaryDashboard() {
   const [doctorSlots, setDoctorSlots] = useState([]);
   const [selectedSlotIds, setSelectedSlotIds] = useState([]);
 
-  // --- HISTORIQUE DES BLOCAGES DU MÉDECIN SÉLECTIONNÉ ---
+  // --- HISTORIQUE DES BLOCAGES ---
   const [doctorUnavailabilities, setDoctorUnavailabilities] = useState([]);
 
-  // --- NOUVEAU : EMPLOI DU TEMPS RÉCURRENT & GENERATION ---
+  // --- EMPLOI DU TEMPS RÉCURRENT ---
   const [weeklyAvailabilities, setWeeklyAvailabilities] = useState([]);
   const [startDateGen, setStartDateGen] = useState("");
   const [endDateGen, setEndDateGen] = useState("");
   const [genMessage, setGenMessage] = useState(null);
   const [showGenSection, setShowGenSection] = useState(false);
 
-  // --- MODALES & CHARGEMENTS ---
+  // --- MODALES ---
   const [loading, setLoading] = useState(true);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [coverageRate, setCoverageRate] = useState("");
   const [cancellationReason, setCancellationReason] = useState("");
   const [isRejecting, setIsRejecting] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
+  // 🔥 fetchData avec apiFetch
   const fetchData = async () => {
     setLoading(true);
     try {
       const [resAppts, resDocs, resCatalog] = await Promise.all([
-        fetch(`${API_BASE_URL}/secretary/appointments`).then((r) => r.json()),
-        fetch(`${API_BASE_URL}/secretary/doctors`).then((r) => r.json()),
-        fetch(`${API_BASE_URL}/catalog`).then((r) => r.json()),
+        apiFetch('/secretary/appointments'),
+        apiFetch('/secretary/doctors'),
+        apiFetch('/catalog'),
       ]);
 
       if (resAppts.success) setAppointments(resAppts.data);
@@ -76,25 +74,29 @@ export default function SecretaryDashboard() {
     }
   };
 
-  // Charger créneaux + historique blocages + récurrence du médecin sélectionné
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // 🔥 fetchDoctorData avec apiFetch
   const fetchDoctorData = (doctorId, date) => {
-    fetch(`${API_BASE_URL}/doctors/${doctorId}/slots?date=${date}`)
-      .then((res) => res.json())
+    apiFetch(`/doctors/${doctorId}/slots?date=${date}`)
       .then((data) => {
         if (data.success) setDoctorSlots(data.data || []);
-      });
+      })
+      .catch(() => setDoctorSlots([]));
 
-    fetch(`${API_BASE_URL}/secretary/doctors/${doctorId}/unavailabilities`)
-      .then((res) => res.json())
+    apiFetch(`/secretary/doctors/${doctorId}/unavailabilities`)
       .then((data) => {
         if (data.success) setDoctorUnavailabilities(data.data || []);
-      });
+      })
+      .catch(() => setDoctorUnavailabilities([]));
 
-    fetch(`${API_BASE_URL}/secretary/doctors/${doctorId}/availabilities`)
-      .then((res) => res.json())
+    apiFetch(`/secretary/doctors/${doctorId}/availabilities`)
       .then((data) => {
         if (data.success) setWeeklyAvailabilities(data.data || []);
-      });
+      })
+      .catch(() => setWeeklyAvailabilities([]));
   };
 
   useEffect(() => {
@@ -154,7 +156,7 @@ export default function SecretaryDashboard() {
     return `${STORAGE_BASE_URL}/${cleanPath}`;
   };
 
-  // --- GESTION DES SÉLECTIONS DE CRÉNEAUX ---
+  // --- GESTION DES SÉLECTIONS ---
   const handleToggleSlotSelection = (slotId) => {
     setSelectedSlotIds((prev) =>
       prev.includes(slotId)
@@ -163,7 +165,7 @@ export default function SecretaryDashboard() {
     );
   };
 
-  // --- BLOCAGE (Toute la journée OU Sélection) ---
+  // 🔥 handleBlockAction avec apiFetch
   const handleBlockAction = (isFullDay = false) => {
     if (!isFullDay && selectedSlotIds.length === 0) {
       return alert("Veuillez sélectionner au moins un créneau à bloquer.");
@@ -178,9 +180,8 @@ export default function SecretaryDashboard() {
 
     if (!reason) return;
 
-    fetch(`${API_BASE_URL}/secretary/unavailabilities/block`, {
+    apiFetch('/secretary/unavailabilities/block', {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         doctor_id: selectedDoctor.id,
         date: selectedDateSlots,
@@ -189,7 +190,6 @@ export default function SecretaryDashboard() {
         slot_ids: isFullDay ? null : selectedSlotIds,
       }),
     })
-      .then((res) => res.json())
       .then((data) => {
         if (data.success) {
           alert(data.message);
@@ -197,10 +197,11 @@ export default function SecretaryDashboard() {
           fetchDoctorData(selectedDoctor.id, selectedDateSlots);
           fetchData();
         }
-      });
+      })
+      .catch(() => alert("Erreur lors du blocage"));
   };
 
-  // --- DÉBLOCAGE / LEVÉE DE L'INDISPONIBILITÉ ---
+  // 🔥 handleUnblock avec apiFetch
   const handleUnblock = (unavailId) => {
     if (
       !window.confirm(
@@ -209,19 +210,20 @@ export default function SecretaryDashboard() {
     )
       return;
 
-    fetch(`${API_BASE_URL}/secretary/unavailabilities/${unavailId}/unblock`, {
+    apiFetch(`/secretary/unavailabilities/${unavailId}/unblock`, {
       method: "POST",
     })
-      .then((res) => res.json())
       .then((data) => {
         if (data.success) {
           alert(data.message);
           fetchDoctorData(selectedDoctor.id, selectedDateSlots);
           fetchData();
         }
-      });
+      })
+      .catch(() => alert("Erreur lors du déblocage"));
   };
-  // --- MARQUER COMME TERMINÉ OU ABSENT ---
+
+  // 🔥 handleUpdateStatus avec apiFetch
   const handleUpdateStatus = async (appointmentId, newStatus) => {
     const statusLabel = newStatus === "TERMINE" ? "Terminé" : "Patient Absent";
     if (
@@ -232,30 +234,26 @@ export default function SecretaryDashboard() {
       return;
 
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/secretary/appointments/${appointmentId}/status`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        },
-      ).then((r) => r.json());
+      const data = await apiFetch(`/secretary/appointments/${appointmentId}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: newStatus }),
+      });
 
-      if (res.success) {
-        fetchData(); // Rafraîchit la liste des rendez-vous
+      if (data.success) {
+        fetchData();
       } else {
-        alert(res.message || "Erreur lors de la mise à jour du statut.");
+        alert(data.message || "Erreur lors de la mise à jour du statut.");
       }
     } catch (err) {
       console.error("Erreur mise à jour statut :", err);
       alert("Erreur de connexion au serveur.");
     }
   };
-  // --- VALIDATION / REFUS ASSURANCE ---
+
+  // 🔥 handleValidateInsurance avec apiFetch
   const handleValidateInsurance = () => {
-    fetch(`${API_BASE_URL}/secretary/validate-insurance`, {
+    apiFetch('/secretary/validate-insurance', {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         appointment_id: selectedAppointment.id,
         insurance_coverage_rate: parseInt(coverageRate),
@@ -267,10 +265,10 @@ export default function SecretaryDashboard() {
     });
   };
 
+  // 🔥 handleRejectInsurance avec apiFetch
   const handleRejectInsurance = () => {
-    fetch(`${API_BASE_URL}/secretary/reject-insurance`, {
+    apiFetch('/secretary/reject-insurance', {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         appointment_id: selectedAppointment.id,
         reason: cancellationReason,
@@ -282,7 +280,7 @@ export default function SecretaryDashboard() {
     });
   };
 
-  // --- GESTION DES DISPONIBILITÉS RÉCURRENTE ET GÉNÉRATION ---
+  // --- GESTION DES DISPONIBILITÉS ---
   const addAvailabilityRow = () => {
     setWeeklyAvailabilities([
       ...weeklyAvailabilities,
@@ -302,19 +300,16 @@ export default function SecretaryDashboard() {
     setWeeklyAvailabilities(updated);
   };
 
+  // 🔥 handleSaveAvailabilities avec apiFetch
   const handleSaveAvailabilities = async () => {
     if (!selectedDoctor) return;
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/secretary/doctors/${selectedDoctor.id}/availabilities`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ availabilities: weeklyAvailabilities }),
-        },
-      ).then((r) => r.json());
+      const data = await apiFetch(`/secretary/doctors/${selectedDoctor.id}/availabilities`, {
+        method: "POST",
+        body: JSON.stringify({ availabilities: weeklyAvailabilities }),
+      });
 
-      if (res.success) {
+      if (data.success) {
         alert("Modèle récurrent enregistré avec succès !");
       }
     } catch (err) {
@@ -322,27 +317,27 @@ export default function SecretaryDashboard() {
     }
   };
 
+  // 🔥 handleGenerateSlots avec apiFetch
   const handleGenerateSlots = async () => {
     if (!selectedDoctor || !startDateGen || !endDateGen) {
       return alert("Veuillez remplir les dates de début et de fin.");
     }
     setGenMessage({ type: "info", text: "Génération en cours..." });
     try {
-      const res = await fetch(`${API_BASE_URL}/secretary/slots/generate`, {
+      const data = await apiFetch('/secretary/slots/generate', {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           doctor_id: selectedDoctor.id,
           start_date: startDateGen,
           end_date: endDateGen,
         }),
-      }).then((r) => r.json());
+      });
 
-      if (res.success) {
-        setGenMessage({ type: "success", text: res.message });
+      if (data.success) {
+        setGenMessage({ type: "success", text: data.message });
         fetchDoctorData(selectedDoctor.id, selectedDateSlots);
       } else {
-        setGenMessage({ type: "danger", text: res.message });
+        setGenMessage({ type: "danger", text: data.message });
       }
     } catch (err) {
       setGenMessage({ type: "danger", text: "Erreur lors de la génération." });
@@ -525,7 +520,7 @@ export default function SecretaryDashboard() {
                                   handleUpdateStatus(appt.id, "TERMINE")
                                 }
                                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold transition shadow-sm"
-                                title="Consulation réalisée"
+                                title="Consultation réalisée"
                               >
                                 ✓ Terminé
                               </button>
@@ -604,17 +599,16 @@ export default function SecretaryDashboard() {
                       {doc.speciality?.nom || "Spécialité N/A"}
                     </p>
                   </div>
-                  <span className="text-xs"></span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* PLANNING DU MÉDECIN + SECTION BLOCAGE & DÉBLOCAGE */}
+          {/* PLANNING DU MÉDECIN */}
           <div className="lg:col-span-2 space-y-6">
             {selectedDoctor ? (
               <>
-                {/* BOUTON CONFIGURATION EMPLOI DU TEMPS RÉCURRENT */}
+                {/* BOUTON CONFIGURATION */}
                 <div className="flex justify-end">
                   <button
                     onClick={() => setShowGenSection(!showGenSection)}
@@ -626,7 +620,7 @@ export default function SecretaryDashboard() {
                   </button>
                 </div>
 
-                {/* VOLET DÉROULANT : MODÈLE RÉCURRENT & GÉNÉRATION */}
+                {/* VOLET DÉROULANT : MODÈLE RÉCURRENT */}
                 {showGenSection && (
                   <div className="bg-indigo-50/40 p-5 rounded-2xl border border-indigo-100 space-y-4">
                     <h3 className="text-xs font-bold text-[#0D1B3D] uppercase tracking-wider">
@@ -789,7 +783,6 @@ export default function SecretaryDashboard() {
                     </div>
                   </div>
 
-                  {/* BARRE D'ACTION QUAND UN OU PLUSIEURS CRÉNEAUX SONT SÉLECTIONNÉS */}
                   {selectedSlotIds.length > 0 && (
                     <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 flex items-center justify-between">
                       <span className="text-xs font-bold text-amber-800">
@@ -804,7 +797,6 @@ export default function SecretaryDashboard() {
                     </div>
                   )}
 
-                  {/* GRILLE DES CRÉNEAUX */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                     {doctorSlots.length === 0 ? (
                       <div className="col-span-full text-center py-8 text-gray-400 text-xs">
@@ -851,7 +843,7 @@ export default function SecretaryDashboard() {
                   </div>
                 </div>
 
-                {/* BLOC 2 : HISTORIQUE ET DÉBLOCAGE DES INDISPONIBILITÉS DU MÉDECIN */}
+                {/* BLOC 2 : HISTORIQUE DES INDISPONIBILITÉS */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
                   <h3 className="text-sm font-bold text-[#0D1B3D]">
                     Historique des blocages du Dr. {selectedDoctor.nom}

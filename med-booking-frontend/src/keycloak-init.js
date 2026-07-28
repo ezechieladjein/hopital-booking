@@ -1,9 +1,10 @@
 // src/keycloak-init.js
 import Keycloak from 'keycloak-js';
 
-// ⚠️ Le clientId doit correspondre EXACTEMENT à celui dans Keycloak
+ // Le clientId doit correspondre EXACTEMENT à celui dans Keycloak
 const keycloakConfig = {
-    url: 'http://localhost:8085',
+    /* url: 'http://localhost:8085', */
+    url: '/keycloak',  // Utilise le proxy pour éviter les problèmes CORS
     realm: 'med-booking-realm',  // Vérifiez le nom exact de votre realm
     clientId: 'med-booking-front',  // Le nom exact de votre client
 };
@@ -81,4 +82,4 @@ export const logout = () => {
 
 // Exporter l'instance
 const keycloak = getKeycloak();
-export default keycloak;
+export default keycloak; 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Mail, Phone, Calendar, Save, CheckCircle, AlertCircle } from 'lucide-react';
+import keycloak from './keycloak-init'; // ⚠️ Ajoute l'import
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
@@ -23,14 +24,26 @@ export default function PatientProfile({ keycloakUuid }) {
     }
   }, [keycloakUuid]);
 
+  // 🔥 Fonction pour récupérer les headers avec le token
+  const getAuthHeaders = () => {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${keycloak.token}`, // ⚠️ AJOUT DU TOKEN
+    };
+  };
+
   const fetchUserProfile = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/patients/${keycloakUuid}/profile`, {
-        headers: {
-          'Accept': 'application/json'
-        }
+        headers: getAuthHeaders() // 🔥 Utilisation des headers avec token
       });
+      
+      if (!res.ok) {
+        throw new Error(`Erreur HTTP ${res.status}`);
+      }
+      
       const data = await res.json();
       
       if (data.success && data.data) {
@@ -42,8 +55,11 @@ export default function PatientProfile({ keycloakUuid }) {
           age: data.data.age || '',
           sexe: data.data.sexe || ''
         });
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Erreur lors du chargement du profil' });
       }
     } catch (err) {
+      console.error('Erreur fetch profile:', err);
       setMessage({ type: 'error', text: 'Impossible de charger vos informations depuis le serveur.' });
     } finally {
       setLoading(false);
@@ -63,12 +79,10 @@ export default function PatientProfile({ keycloakUuid }) {
     try {
       const res = await fetch(`${API_BASE_URL}/patients/${keycloakUuid}/profile`, {
         method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
+        headers: getAuthHeaders(), // 🔥 Utilisation des headers avec token
         body: JSON.stringify(formData)
       });
+
       const data = await res.json();
 
       if (data.success) {
@@ -77,7 +91,8 @@ export default function PatientProfile({ keycloakUuid }) {
         setMessage({ type: 'error', text: data.message || 'Erreur lors de la sauvegarde.' });
       }
     } catch (err) {
-      setMessage({ type: 'error', text: 'Impossible de contacter le serveur backend (Vérifiez le port ou la connexion).' });
+      console.error('Erreur save profile:', err);
+      setMessage({ type: 'error', text: 'Impossible de contacter le serveur backend.' });
     } finally {
       setSaving(false);
     }

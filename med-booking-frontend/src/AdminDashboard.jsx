@@ -1,39 +1,21 @@
 import React, { useState, useEffect } from "react";
-import AppointmentChart from "./AppointmentChart"; // Ajustez le chemin vers le fichier créé à l'étape 1
-import axios from "axios";
-import keycloak from "./keycloak-init";
-
-const API_BASE = "http://localhost:8000/api/admin";
-
-const getAuthHeaders = () => ({
-  headers: {
-    Authorization: `Bearer ${keycloak.token}`,
-  },
-});
+import AppointmentChart from "./AppointmentChart";
+import { apiFetch } from './api'; // 🔥 AJOUT (remplace axios)
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("stats");
-
-  // Filtrage Temporel
   const [period, setPeriod] = useState("7d");
-
-  // Données Globales
   const [stats, setStats] = useState(null);
   const [specialities, setSpecialities] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [unavailabilities, setUnavailabilities] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Animation Graphe Flux RDV
   const [animateChart, setAnimateChart] = useState(false);
-
-  // Modales
   const [selectedSpecForDocs, setSelectedSpecForDocs] = useState(null);
-  const [confirmedDetails, setConfirmedDetails] = useState(null); // Modale détails RDV Confirmés
+  const [confirmedDetails, setConfirmedDetails] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-  // Formulaires
   const [newSpec, setNewSpec] = useState({
     nom: "",
     duree_consultation: 30,
@@ -58,28 +40,24 @@ export default function AdminDashboard() {
     loadData();
   }, [period]);
 
+  // 🔥 loadData avec apiFetch au lieu de axios
   const loadData = async () => {
     setLoading(true);
     setAnimateChart(false);
     try {
-      const [resStats, resSpecs, resDocs, resUnavail, resUsers] =
-        await Promise.all([
-          axios.get(`${API_BASE}/stats?period=${period}`, getAuthHeaders()),
-          axios.get(`${API_BASE}/specialities`, getAuthHeaders()),
-          axios.get(`${API_BASE}/doctors`, getAuthHeaders()),
-          axios
-            .get(`${API_BASE}/unavailabilities`, getAuthHeaders())
-            .catch(() => ({ data: { data: [] } })),
-          axios
-            .get(`${API_BASE}/users/logs`, getAuthHeaders())
-            .catch(() => ({ data: { data: [] } })),
-        ]);
+      const [statsData, specialitiesData, doctorsData, unavailabilitiesData, usersData] = await Promise.all([
+        apiFetch(`/admin/stats?period=${period}`),
+        apiFetch('/admin/specialities'),
+        apiFetch('/admin/doctors'),
+        apiFetch('/admin/unavailabilities').catch(() => ({ data: [] })),
+        apiFetch('/admin/users/logs').catch(() => ({ data: [] })),
+      ]);
 
-      setStats(resStats.data.data);
-      setSpecialities(resSpecs.data.data);
-      setDoctors(resDocs.data.data);
-      setUnavailabilities(resUnavail.data.data);
-      setUsers(resUsers.data.data);
+      setStats(statsData.data);
+      setSpecialities(specialitiesData.data);
+      setDoctors(doctorsData.data);
+      setUnavailabilities(unavailabilitiesData.data);
+      setUsers(usersData.data);
 
       setTimeout(() => setAnimateChart(true), 150);
     } catch (err) {
@@ -89,14 +67,12 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- OUVERTURE DÉTAILS RDV CONFIRMÉS ---
+  // 🔥 handleOpenConfirmedDetails avec apiFetch
   const handleOpenConfirmedDetails = async () => {
     setLoadingDetails(true);
     try {
-      const res = await axios.get(
-        `${API_BASE}/stats/confirmed-details?period=${period}`,
-      );
-      setConfirmedDetails(res.data.data);
+      const data = await apiFetch(`/admin/stats/confirmed-details?period=${period}`);
+      setConfirmedDetails(data.data);
     } catch (err) {
       alert("Erreur lors de la récupération du détail des RDV");
     } finally {
@@ -104,50 +80,60 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- ACTIONS SPÉCIALITÉS ---
+  // 🔥 handleAddSpeciality avec apiFetch
   const handleAddSpeciality = async (e) => {
     e.preventDefault();
     if (!newSpec.nom) return;
     try {
-      await axios.post(`${API_BASE}/specialities`, newSpec, getAuthHeaders());
+      await apiFetch('/admin/specialities', {
+        method: 'POST',
+        body: JSON.stringify(newSpec),
+      });
       setNewSpec({ nom: "", duree_consultation: 30, tarif: 10000 });
       loadData();
     } catch (err) {
-      alert(err.response?.data?.message || "Erreur lors de la création");
+      alert(err.message || "Erreur lors de la création");
     }
   };
 
+  // 🔥 handleUpdateSpeciality avec apiFetch
   const handleUpdateSpeciality = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(
-        `${API_BASE}/specialities/${editingSpec.id}`,
-        editingSpec, getAuthHeaders(),
-      );
+      await apiFetch(`/admin/specialities/${editingSpec.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(editingSpec),
+      });
       setEditingSpec(null);
       loadData();
     } catch (err) {
-      alert(err.response?.data?.message || "Erreur lors de la modification");
+      alert(err.message || "Erreur lors de la modification");
     }
   };
 
+  // 🔥 handleDeleteSpeciality avec apiFetch
   const handleDeleteSpeciality = async (id) => {
     if (!window.confirm("Voulez-vous vraiment supprimer cette spécialité ?"))
       return;
     try {
-      await axios.delete(`${API_BASE}/specialities/${id}`, getAuthHeaders());
+      await apiFetch(`/admin/specialities/${id}`, {
+        method: 'DELETE',
+      });
       loadData();
     } catch (err) {
-      alert(err.response?.data?.message || "Erreur lors de la suppression");
+      alert(err.message || "Erreur lors de la suppression");
     }
   };
 
-  // --- ACTIONS MÉDECINS ---
+  // 🔥 handleAddDoctor avec apiFetch
   const handleAddDoctor = async (e) => {
     e.preventDefault();
     if (!newDoc.nom || !newDoc.prenom || !newDoc.speciality_id) return;
     try {
-      await axios.post(`${API_BASE}/doctors`, newDoc, getAuthHeaders());
+      await apiFetch('/admin/doctors', {
+        method: 'POST',
+        body: JSON.stringify(newDoc),
+      });
       setNewDoc({ nom: "", prenom: "", speciality_id: "" });
       loadData();
     } catch (err) {
@@ -155,29 +141,31 @@ export default function AdminDashboard() {
     }
   };
 
+  // 🔥 handleToggleDoctor avec apiFetch
   const handleToggleDoctor = async (id) => {
     try {
-      await axios.patch(`${API_BASE}/doctors/${id}/toggle-status`);
+      await apiFetch(`/admin/doctors/${id}/toggle-status`, {
+        method: 'PATCH',
+      });
       loadData();
     } catch (err) {
       alert("Erreur de mise à jour du statut");
     }
   };
 
-  // --- ACTIONS STAFF ---
+  // 🔥 handleCreateStaff avec apiFetch
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     if (!newStaff.password) {
-      // 👈 AJOUTER VALIDATION
-      alert(
-        "Veuillez saisir un mot de passe pour la création du compte Keycloak.",
-      );
+      alert("Veuillez saisir un mot de passe pour la création du compte Keycloak.");
       return;
     }
 
     try {
-      // 👈 MODIFIER CET APPEL (ajout de getAuthHeaders)
-      await axios.post(`${API_BASE}/users/staff`, newStaff, getAuthHeaders());
+      await apiFetch('/admin/users/staff', {
+        method: 'POST',
+        body: JSON.stringify(newStaff),
+      });
 
       setNewStaff({
         nom: "",
@@ -185,12 +173,12 @@ export default function AdminDashboard() {
         email: "",
         telephone: "",
         role: "secretaire",
-        password: "", // 👈 RÉINITIALISER LE MOT DE PASSE
+        password: "",
       });
       alert("Compte créé avec succès dans Keycloak et BDD !");
       loadData();
     } catch (err) {
-      alert(err.response?.data?.message || "Erreur lors de la création");
+      alert(err.message || "Erreur lors de la création");
     }
   };
 
@@ -209,15 +197,9 @@ export default function AdminDashboard() {
         <div className="flex flex-wrap gap-2">
           {[
             { id: "stats", label: "Statistiques" },
-            {
-              id: "specialities",
-              label: `Spécialités (${specialities.length})`,
-            },
+            { id: "specialities", label: `Spécialités (${specialities.length})` },
             { id: "doctors", label: `Médecins (${doctors.length})` },
-            {
-              id: "unavailabilities",
-              label: `Absences (${unavailabilities.length})`,
-            },
+            { id: "unavailabilities", label: `Absences (${unavailabilities.length})` },
             { id: "users", label: "Staff & Utilisateurs" },
           ].map((tab) => (
             <button
@@ -234,12 +216,9 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* Sélecteur de période (Affiché uniquement sur l'onglet Stats) */}
         {activeTab === "stats" && (
           <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-xl border border-gray-200">
-            <span className="text-[11px] font-bold text-gray-400 pl-2">
-              Période :
-            </span>
+            <span className="text-[11px] font-bold text-gray-400 pl-2">Période :</span>
             {[
               { id: "7d", label: "7 jours" },
               { id: "30d", label: "30 jours" },
@@ -266,9 +245,7 @@ export default function AdminDashboard() {
       {/* 1. VUE : SUPERVISION & GRAPHES */}
       {activeTab === "stats" && (
         <div className="space-y-6">
-          {/* Cartes Métriques */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {/* Chiffre d'Affaires Net */}
             <div className="bg-linear-to-br from-[#0D1B3D] to-[#1E293B] p-5 rounded-2xl border border-gray-800 text-white shadow-md">
               <p className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">
                 Chiffre d'Affaires Net
@@ -279,15 +256,12 @@ export default function AdminDashboard() {
               </p>
             </div>
 
-            {/* RDV Confirmés (Cliquable) */}
             <div
               onClick={handleOpenConfirmedDetails}
               className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm cursor-pointer hover:border-emerald-300 hover:shadow-md transition group"
             >
               <div className="flex justify-between items-center">
-                <p className="text-xs font-bold text-gray-400 uppercase">
-                  RDV Confirmés
-                </p>
+                <p className="text-xs font-bold text-gray-400 uppercase">RDV Confirmés</p>
                 <span className="text-[10px] text-emerald-600 font-bold opacity-0 group-hover:opacity-100 transition">
                   Voir détails →
                 </span>
@@ -298,43 +272,33 @@ export default function AdminDashboard() {
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase">
-                Médecins (Actifs / Total)
-              </p>
+              <p className="text-xs font-bold text-gray-400 uppercase">Médecins (Actifs / Total)</p>
               <p className="text-3xl font-black text-[#0D1B3D] mt-2">
                 {stats?.active_doctors ?? 0}
-                <span className="text-sm font-normal text-gray-400">
-                  {" "}
-                  / {stats?.total_doctors ?? 0}
-                </span>
+                <span className="text-sm font-normal text-gray-400"> / {stats?.total_doctors ?? 0}</span>
               </p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase">
-                Spécialités Actives
-              </p>
+              <p className="text-xs font-bold text-gray-400 uppercase">Spécialités Actives</p>
               <p className="text-3xl font-black text-amber-500 mt-2">
                 {stats?.total_specialities ?? 0}
               </p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase">
-                Patients Enregistrés
-              </p>
+              <p className="text-xs font-bold text-gray-400 uppercase">Patients Enregistrés</p>
               <p className="text-3xl font-black text-indigo-600 mt-2">
                 {stats?.total_patients ?? 0}
               </p>
             </div>
           </div>
 
-          {/* Graphiques */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Graphe 1: Evolution Dynamique Recharts */}
-            <AppointmentChart data={stats?.chart_data || []} />
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+              <AppointmentChart data={stats?.chart_data || []} />
+            </div>
 
-            {/* Graphe 2: Charge par Spécialité */}
             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
               <h3 className="text-sm font-bold text-[#0D1B3D]">
                 Charge par Spécialité (Médecins rattachés)
@@ -344,9 +308,7 @@ export default function AdminDashboard() {
                   <div key={spec.id} className="space-y-1">
                     <div className="flex justify-between text-xs font-bold">
                       <span className="text-gray-700">{spec.nom}</span>
-                      <span className="text-gray-400">
-                        {spec.doctors_count ?? 0} Médecin(s)
-                      </span>
+                      <span className="text-gray-400">{spec.doctors_count ?? 0} Médecin(s)</span>
                     </div>
                     <div className="w-full bg-gray-100 h-2.5 rounded-full overflow-hidden">
                       <div
@@ -371,16 +333,9 @@ export default function AdminDashboard() {
             <h2 className="text-base font-bold text-[#0D1B3D] mb-4">
               {editingSpec ? "Modifier la Spécialité" : "Nouvelle Spécialité"}
             </h2>
-            <form
-              onSubmit={
-                editingSpec ? handleUpdateSpeciality : handleAddSpeciality
-              }
-              className="space-y-4"
-            >
+            <form onSubmit={editingSpec ? handleUpdateSpeciality : handleAddSpeciality} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Nom de la Spécialité
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Nom de la Spécialité</label>
                 <input
                   type="text"
                   value={editingSpec ? editingSpec.nom : newSpec.nom}
@@ -395,58 +350,35 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Durée consultation (minutes)
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Durée consultation (minutes)</label>
                 <input
                   type="number"
-                  value={
-                    editingSpec
-                      ? editingSpec.duree_consultation
-                      : newSpec.duree_consultation
-                  }
+                  value={editingSpec ? editingSpec.duree_consultation : newSpec.duree_consultation}
                   onChange={(e) =>
                     editingSpec
-                      ? setEditingSpec({
-                          ...editingSpec,
-                          duree_consultation: parseInt(e.target.value),
-                        })
-                      : setNewSpec({
-                          ...newSpec,
-                          duree_consultation: parseInt(e.target.value),
-                        })
+                      ? setEditingSpec({ ...editingSpec, duree_consultation: parseInt(e.target.value) })
+                      : setNewSpec({ ...newSpec, duree_consultation: parseInt(e.target.value) })
                   }
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Tarif (FCFA)
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Tarif (FCFA)</label>
                 <input
                   type="number"
                   value={editingSpec ? editingSpec.tarif : newSpec.tarif}
                   onChange={(e) =>
                     editingSpec
-                      ? setEditingSpec({
-                          ...editingSpec,
-                          tarif: parseInt(e.target.value),
-                        })
-                      : setNewSpec({
-                          ...newSpec,
-                          tarif: parseInt(e.target.value),
-                        })
+                      ? setEditingSpec({ ...editingSpec, tarif: parseInt(e.target.value) })
+                      : setNewSpec({ ...newSpec, tarif: parseInt(e.target.value) })
                   }
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="flex-1 bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm"
-                >
+                <button type="submit" className="flex-1 bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm">
                   {editingSpec ? "Mettre à jour" : "Ajouter"}
                 </button>
                 {editingSpec && (
@@ -477,12 +409,8 @@ export default function AdminDashboard() {
                 {specialities.map((spec) => (
                   <tr key={spec.id} className="hover:bg-gray-50/50">
                     <td className="p-4 font-bold text-[#0D1B3D]">{spec.nom}</td>
-                    <td className="p-4 text-gray-600 font-medium">
-                      {spec.duree_consultation} min
-                    </td>
-                    <td className="p-4 font-mono font-bold text-[#2EAF5E]">
-                      {spec.tarif?.toLocaleString()} FCFA
-                    </td>
+                    <td className="p-4 text-gray-600 font-medium">{spec.duree_consultation} min</td>
+                    <td className="p-4 font-mono font-bold text-[#2EAF5E]">{spec.tarif?.toLocaleString()} FCFA</td>
                     <td className="p-4">
                       <button
                         onClick={() => setSelectedSpecForDocs(spec)}
@@ -517,47 +445,33 @@ export default function AdminDashboard() {
       {activeTab === "doctors" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">
-              Nouveau Médecin
-            </h2>
+            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">Nouveau Médecin</h2>
             <form onSubmit={handleAddDoctor} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Prénom
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Prénom</label>
                 <input
                   type="text"
                   value={newDoc.prenom}
-                  onChange={(e) =>
-                    setNewDoc({ ...newDoc, prenom: e.target.value })
-                  }
+                  onChange={(e) => setNewDoc({ ...newDoc, prenom: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Nom
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Nom</label>
                 <input
                   type="text"
                   value={newDoc.nom}
-                  onChange={(e) =>
-                    setNewDoc({ ...newDoc, nom: e.target.value })
-                  }
+                  onChange={(e) => setNewDoc({ ...newDoc, nom: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Spécialité
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Spécialité</label>
                 <select
                   value={newDoc.speciality_id}
-                  onChange={(e) =>
-                    setNewDoc({ ...newDoc, speciality_id: e.target.value })
-                  }
+                  onChange={(e) => setNewDoc({ ...newDoc, speciality_id: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 >
                   <option value="">Sélectionnez une spécialité</option>
@@ -569,10 +483,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <button
-                type="submit"
-                className="w-full bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm"
-              >
+              <button type="submit" className="w-full bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm">
                 Enregistrer Médecin
               </button>
             </form>
@@ -591,20 +502,12 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-gray-50">
                 {doctors.map((doc) => (
                   <tr key={doc.id} className="hover:bg-gray-50/50">
-                    <td className="p-4 font-bold text-[#0D1B3D]">
-                      Dr. {doc.prenom} {doc.nom}
-                    </td>
-                    <td className="p-4 text-gray-600 font-medium">
-                      {doc.speciality?.nom ?? "Non assigné"}
-                    </td>
+                    <td className="p-4 font-bold text-[#0D1B3D]">Dr. {doc.prenom} {doc.nom}</td>
+                    <td className="p-4 text-gray-600 font-medium">{doc.speciality?.nom ?? "Non assigné"}</td>
                     <td className="p-4">
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                          doc.status === "actif"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        doc.status === "actif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                      }`}>
                         {doc.status}
                       </span>
                     </td>
@@ -627,9 +530,7 @@ export default function AdminDashboard() {
       {/* 4. VUE : ABSENCES MÉDECINS */}
       {activeTab === "unavailabilities" && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-bold text-[#0D1B3D]">
-            📅 Registre des Absences et Indisponibilités Saisies
-          </h2>
+          <h2 className="text-base font-bold text-[#0D1B3D]">📅 Registre des Absences et Indisponibilités Saisies</h2>
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
               <tr>
@@ -644,34 +545,20 @@ export default function AdminDashboard() {
             <tbody className="divide-y divide-gray-50">
               {unavailabilities.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="p-4 text-center text-gray-400">
-                    Aucune absence enregistrée.
-                  </td>
+                  <td colSpan="6" className="p-4 text-center text-gray-400">Aucune absence enregistrée.</td>
                 </tr>
               ) : (
                 unavailabilities.map((u) => (
                   <tr key={u.id}>
-                    <td className="p-3 font-bold text-[#0D1B3D]">
-                      Dr. {u.doctor?.prenom} {u.doctor?.nom}
-                    </td>
+                    <td className="p-3 font-bold text-[#0D1B3D]">Dr. {u.doctor?.prenom} {u.doctor?.nom}</td>
                     <td className="p-3">
-                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-bold text-xs">
-                        {u.type}
-                      </span>
+                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-bold text-xs">{u.type}</span>
                     </td>
                     <td className="p-3 text-gray-600">{u.reason ?? "N/C"}</td>
-                    <td className="p-3 text-gray-500 font-mono text-xs">
-                      {u.start_datetime} au {u.end_datetime}
-                    </td>
-                    <td className="p-3 text-gray-600">
-                      {u.creator
-                        ? `${u.creator.prenom} ${u.creator.nom}`
-                        : "N/C"}
-                    </td>
+                    <td className="p-3 text-gray-500 font-mono text-xs">{u.start_datetime} au {u.end_datetime}</td>
+                    <td className="p-3 text-gray-600">{u.creator ? `${u.creator.prenom} ${u.creator.nom}` : "N/C"}</td>
                     <td className="p-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${u.status === "ACTIF" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}
-                      >
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${u.status === "ACTIF" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                         {u.status}
                       </span>
                     </td>
@@ -687,91 +574,65 @@ export default function AdminDashboard() {
       {activeTab === "users" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">
-              Créer Utilisateur Staff
-            </h2>
+            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">Créer Utilisateur Staff</h2>
             <form onSubmit={handleCreateStaff} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Prénom
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Prénom</label>
                 <input
                   type="text"
                   value={newStaff.prenom}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, prenom: e.target.value })
-                  }
+                  onChange={(e) => setNewStaff({ ...newStaff, prenom: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Nom
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Nom</label>
                 <input
                   type="text"
                   value={newStaff.nom}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, nom: e.target.value })
-                  }
+                  onChange={(e) => setNewStaff({ ...newStaff, nom: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Email
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Email</label>
                 <input
                   type="email"
                   value={newStaff.email}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, email: e.target.value })
-                  }
+                  onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Téléphone
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Téléphone</label>
                 <input
                   type="text"
                   value={newStaff.telephone}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, telephone: e.target.value })
-                  }
+                  onChange={(e) => setNewStaff({ ...newStaff, telephone: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Mot de passe Keycloak
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Mot de passe Keycloak</label>
                 <input
                   type="password"
                   required
                   placeholder="••••••••"
                   value={newStaff.password}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, password: e.target.value })
-                  }
+                  onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">
-                  Rôle
-                </label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Rôle</label>
                 <select
                   value={newStaff.role}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, role: e.target.value })
-                  }
+                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
                 >
                   <option value="secretaire">Secrétaire</option>
@@ -779,19 +640,14 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <button
-                type="submit"
-                className="w-full bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm"
-              >
+              <button type="submit" className="w-full bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm">
                 Enregistrer dans BDD
               </button>
             </form>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm lg:col-span-2 overflow-hidden p-6 space-y-4">
-            <h2 className="text-base font-bold text-[#0D1B3D]">
-              Liste des Utilisateurs
-            </h2>
+            <h2 className="text-base font-bold text-[#0D1B3D]">Liste des Utilisateurs</h2>
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
                 <tr>
@@ -804,23 +660,15 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-gray-50">
                 {users.map((u) => (
                   <tr key={u.id}>
-                    <td className="p-3 font-bold text-[#0D1B3D]">
-                      {u.prenom} {u.nom}
-                    </td>
+                    <td className="p-3 font-bold text-[#0D1B3D]">{u.prenom} {u.nom}</td>
                     <td className="p-3 text-gray-600">{u.email}</td>
-                    <td className="p-3 text-gray-500 font-mono text-xs">
-                      {u.telephone ?? "N/C"}
-                    </td>
+                    <td className="p-3 text-gray-500 font-mono text-xs">{u.telephone ?? "N/C"}</td>
                     <td className="p-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${
-                          u.role === "administrateur"
-                            ? "bg-purple-100 text-purple-700"
-                            : u.role === "secretaire"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-gray-100 text-gray-700"
-                        }`}
-                      >
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                        u.role === "administrateur" ? "bg-purple-100 text-purple-700" :
+                        u.role === "secretaire" ? "bg-blue-100 text-blue-700" :
+                        "bg-gray-100 text-gray-700"
+                      }`}>
                         {u.role}
                       </span>
                     </td>
@@ -832,14 +680,12 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MODALE 1 : NOM DES MÉDECINS PAR SPÉCIALITÉ */}
+      {/* MODALES */}
       {selectedSpecForDocs && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl border border-gray-100">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <h3 className="font-bold text-[#0D1B3D] text-base">
-                Médecins en {selectedSpecForDocs.nom}
-              </h3>
+              <h3 className="font-bold text-[#0D1B3D] text-base">Médecins en {selectedSpecForDocs.nom}</h3>
               <button
                 onClick={() => setSelectedSpecForDocs(null)}
                 className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 transition flex items-center justify-center text-xs"
@@ -849,8 +695,7 @@ export default function AdminDashboard() {
             </div>
 
             <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
-              {doctors.filter((d) => d.speciality_id === selectedSpecForDocs.id)
-                .length === 0 ? (
+              {doctors.filter((d) => d.speciality_id === selectedSpecForDocs.id).length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-6 font-medium">
                   Aucun médecin n'est actuellement rattaché à cette spécialité.
                 </p>
@@ -858,20 +703,11 @@ export default function AdminDashboard() {
                 doctors
                   .filter((d) => d.speciality_id === selectedSpecForDocs.id)
                   .map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="p-3 bg-gray-50 rounded-xl flex justify-between items-center text-sm border border-gray-100"
-                    >
-                      <span className="font-bold text-[#0D1B3D]">
-                        Dr. {doc.prenom} {doc.nom}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          doc.status === "actif"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
+                    <div key={doc.id} className="p-3 bg-gray-50 rounded-xl flex justify-between items-center text-sm border border-gray-100">
+                      <span className="font-bold text-[#0D1B3D]">Dr. {doc.prenom} {doc.nom}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        doc.status === "actif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                      }`}>
                         {doc.status}
                       </span>
                     </div>
@@ -889,19 +725,13 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MODALE 2 : DÉTAIL DES RDV CONFIRMÉS / HONORÉS */}
       {(confirmedDetails || loadingDetails) && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-xl border border-gray-100">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
               <div>
-                <h3 className="font-bold text-[#0D1B3D] text-base">
-                  Détail des RDV Confirmés & Honorés
-                </h3>
-                <p className="text-xs text-gray-400">
-                  Période :{" "}
-                  <span className="font-bold text-[#0D1B3D]">{period}</span>
-                </p>
+                <h3 className="font-bold text-[#0D1B3D] text-base">Détail des RDV Confirmés & Honorés</h3>
+                <p className="text-xs text-gray-400">Période : <span className="font-bold text-[#0D1B3D]">{period}</span></p>
               </div>
               <button
                 onClick={() => setConfirmedDetails(null)}
@@ -912,9 +742,7 @@ export default function AdminDashboard() {
             </div>
 
             {loadingDetails ? (
-              <p className="text-center py-8 text-sm text-gray-500 font-medium">
-                Chargement des détails...
-              </p>
+              <p className="text-center py-8 text-sm text-gray-500 font-medium">Chargement des détails...</p>
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-2">
                 <table className="w-full text-left text-xs">
@@ -932,23 +760,13 @@ export default function AdminDashboard() {
                     {confirmedDetails?.map((app) => (
                       <tr key={app.id}>
                         <td className="p-3 font-bold text-[#0D1B3D]">
-                          {app.patient
-                            ? `${app.patient.prenom} ${app.patient.nom}`
-                            : "N/C"}
+                          {app.patient ? `${app.patient.prenom} ${app.patient.nom}` : "N/C"}
                         </td>
-                        <td className="p-3 text-gray-600">
-                          Dr. {app.doctor?.prenom} {app.doctor?.nom}
-                        </td>
-                        <td className="p-3 text-gray-500">
-                          {app.speciality?.nom}
-                        </td>
-                        <td className="p-3 font-mono">
-                          {app.appointment_date}
-                        </td>
+                        <td className="p-3 text-gray-600">Dr. {app.doctor?.prenom} {app.doctor?.nom}</td>
+                        <td className="p-3 text-gray-500">{app.speciality?.nom}</td>
+                        <td className="p-3 font-mono">{app.appointment_date}</td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 rounded bg-green-100 text-green-700 font-bold">
-                            {app.status}
-                          </span>
+                          <span className="px-2 py-0.5 rounded bg-green-100 text-green-700 font-bold">{app.status}</span>
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-[#2EAF5E]">
                           {app.amount_paid?.toLocaleString()} FCFA

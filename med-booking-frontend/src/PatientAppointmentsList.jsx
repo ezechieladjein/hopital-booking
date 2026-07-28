@@ -17,11 +17,11 @@ import {
   XCircle,
   RotateCcw,
 } from "lucide-react";
+import { apiFetch } from './api'; // 🔥 AJOUT
 
-const API_BASE_URL = "http://localhost:8000/api";
 const ITEMS_PER_PAGE = 5;
 
-export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
+export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPPRESSION DE authToken
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,7 +67,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
   const [availableDoctors, setAvailableDoctors] = useState([]);
   const [availableSlots, setAvailableSlots] = useState([]);
 
-  // État de l'action en cours : { id: number|string, type: 'pay' | 'cancel' | 'save_edit' }
+  // État de l'action en cours
   const [actionLoading, setActionLoading] = useState(null);
 
   // Auto-dismiss Toast après 4 secondes
@@ -86,58 +86,39 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
 
   const getApptId = (appt) => appt?.id ?? appt?.appointment_id;
 
-  const getHeaders = useCallback(() => {
-    const headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    if (authToken) {
-      headers["Authorization"] = `Bearer ${authToken}`;
-    }
-    return headers;
-  }, [authToken]);
-
+  // 🔥 Remplacer getHeaders par apiFetch
   const fetchAppointments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/patients/${keycloakUuid}/appointments`,
-        {
-          headers: getHeaders(),
-        },
-      );
-      const data = await res.json();
+      const data = await apiFetch(`/patients/${keycloakUuid}/appointments`);
       if (data.success) {
         setAppointments(data.data || []);
       } else {
         showToast(
           "error",
           "Erreur de chargement",
-          data.message || "Impossible de récupérer vos rendez-vous.",
+          data.message || "Impossible de récupérer vos rendez-vous."
         );
       }
     } catch (err) {
       showToast(
         "error",
         "Erreur réseau",
-        "Impossible de se connecter au serveur.",
+        "Impossible de se connecter au serveur."
       );
     } finally {
       setLoading(false);
     }
-  }, [keycloakUuid, getHeaders]);
+  }, [keycloakUuid]);
 
   const fetchCatalog = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/catalog`, {
-        headers: getHeaders(),
-      });
-      const data = await res.json();
+      const data = await apiFetch('/catalog');
       if (data.success) setCatalog(data.data || []);
     } catch (err) {
       console.error("Erreur chargement catalogue:", err);
     }
-  }, [getHeaders]);
+  }, []);
 
   useEffect(() => {
     if (keycloakUuid) {
@@ -167,7 +148,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
     let isSlotPassed = false;
     if (appt.slot) {
       const slotDateTime = new Date(
-        `${appt.slot.date_consultation}T${appt.slot.start_time}`,
+        `${appt.slot.date_consultation}T${appt.slot.start_time}`
       );
       isSlotPassed = slotDateTime < now;
     }
@@ -178,74 +159,71 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
   const getEffectiveStatus = (appt) =>
     isAppointmentExpired(appt) ? "EXPIRE" : appt.status;
 
+  // 🔥 handlePayment avec apiFetch
   const handlePayment = async (apptId) => {
     if (!apptId || actionLoading) return;
 
     setActionLoading({ id: apptId, type: "pay" });
 
     try {
-      const res = await fetch(`${API_BASE_URL}/payments/initiate`, {
+      const data = await apiFetch('/payments/initiate', {
         method: "POST",
-        headers: getHeaders(),
         body: JSON.stringify({ appointment_id: apptId }),
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success && data.payment_url) {
+      if (data.success && data.payment_url) {
         window.location.href = data.payment_url;
       } else {
         showToast(
           "error",
           "Erreur de paiement",
-          data.message || `Erreur serveur (${res.status}).`,
+          data.message || "Erreur lors de l'initiation du paiement."
         );
       }
     } catch (err) {
       showToast(
         "error",
         "Erreur réseau",
-        "Problème de connexion lors du lancement du paiement.",
+        "Problème de connexion lors du lancement du paiement."
       );
     } finally {
       setActionLoading(null);
     }
   };
 
+  // 🔥 executeCancel avec apiFetch
   const executeCancel = async () => {
     const apptId = cancelModal.apptId;
     if (!apptId) return;
 
     setActionLoading({ id: apptId, type: "cancel" });
     try {
-      const res = await fetch(`${API_BASE_URL}/appointments/${apptId}/cancel`, {
+      const data = await apiFetch(`/appointments/${apptId}/cancel`, {
         method: "POST",
-        headers: getHeaders(),
         body: JSON.stringify({
           reason: "Annulé par le patient via le portail web",
         }),
       });
-      const data = await res.json();
 
       if (data.success) {
         showToast(
           "success",
           "Rendez-vous annulé",
-          data.message || "Votre rendez-vous a été annulé.",
+          data.message || "Votre rendez-vous a été annulé."
         );
         fetchAppointments();
       } else {
         showToast(
           "error",
           "Erreur d'annulation",
-          data.message || "Impossible d'annuler ce rendez-vous.",
+          data.message || "Impossible d'annuler ce rendez-vous."
         );
       }
     } catch (err) {
       showToast(
         "error",
         "Erreur réseau",
-        "Problème lors de la demande d'annulation.",
+        "Problème lors de la demande d'annulation."
       );
     } finally {
       setActionLoading(null);
@@ -253,16 +231,11 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
     }
   };
 
+  // 🔥 fetchSlotsForDoctorAndDate avec apiFetch
   const fetchSlotsForDoctorAndDate = async (doctorId, date) => {
     if (!doctorId || !date) return;
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/doctors/${doctorId}/slots?date=${date}`,
-        {
-          headers: getHeaders(),
-        },
-      );
-      const data = await res.json();
+      const data = await apiFetch(`/doctors/${doctorId}/slots?date=${date}`);
       setAvailableSlots(data.success ? data.data || [] : []);
     } catch (err) {
       setAvailableSlots([]);
@@ -319,6 +292,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
     fetchSlotsForDoctorAndDate(editForm.doctorId, date);
   };
 
+  // 🔥 handleSaveEdit avec apiFetch
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     const apptId = getApptId(selectedAppt);
@@ -327,7 +301,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
         showToast(
           "error",
           "Champ requis",
-          "Veuillez sélectionner un créneau horaire.",
+          "Veuillez sélectionner un créneau horaire."
         );
       return;
     }
@@ -343,29 +317,23 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
         formData.append("insurance_name", editForm.insuranceName);
         formData.append(
           "insurance_policy_number",
-          editForm.insurancePolicyNumber,
+          editForm.insurancePolicyNumber
         );
         if (editForm.insuranceDocument) {
           formData.append("insurance_document", editForm.insuranceDocument);
         }
       }
 
-      const headers = {};
-      if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
-
-      const res = await fetch(`${API_BASE_URL}/appointments/${apptId}`, {
+      const data = await apiFetch(`/appointments/${apptId}`, {
         method: "POST",
-        headers,
         body: formData,
       });
-
-      const data = await res.json();
 
       if (data.success) {
         showToast(
           "success",
           "Mise à jour réussie",
-          "Votre rendez-vous a été modifié avec succès !",
+          "Votre rendez-vous a été modifié avec succès !"
         );
         setEditModalOpen(false);
         fetchAppointments();
@@ -373,14 +341,14 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
         showToast(
           "error",
           "Erreur de modification",
-          data.message || "Impossible de mettre à jour le rendez-vous.",
+          data.message || "Impossible de mettre à jour le rendez-vous."
         );
       }
     } catch (err) {
       showToast(
         "error",
         "Erreur réseau",
-        "Problème de connexion lors de la modification.",
+        "Problème de connexion lors de la modification."
       );
     } finally {
       setActionLoading(null);
@@ -472,7 +440,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
         </div>
       )}
 
-      {/* EN-TÊTE + BARRE DE FILTRES ET D'OPTIMISATION */}
+      {/* EN-TÊTE + BARRE DE FILTRES */}
       <div className="flex flex-col gap-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
@@ -591,7 +559,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
               actionLoading &&
               currentId != null &&
               actionLoading.id != null &&
-              String(actionLoading.id) === String(currentId),
+              String(actionLoading.id) === String(currentId)
             );
 
             const isPayingThis =
@@ -658,7 +626,6 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
                       <span className="font-bold text-gray-900">
                         {appt.amount_to_pay} FCFA
                       </span>
-                      {/* Affichage du prix de base barré si une couverture d'assurance a été appliquée */}
                       {Number(appt.insurance_coverage_rate) > 0 &&
                         Number(appt.base_price) >
                           Number(appt.amount_to_pay) && (
@@ -704,7 +671,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
                     </div>
                   </div>
                 </div>
-                {/* NOUVEAU BLOC : Message d'explication / motif de refus d'assurance */}
+                {/* NOUVEAU BLOC : Message d'explication */}
                 {appt.cancellation_reason && (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-rose-900 text-xs">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -817,7 +784,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
         </div>
       )}
 
-      {/* MODALE DE CONFIRMATION D'ANNULATION SUR-MESURE */}
+      {/* MODALE DE CONFIRMATION D'ANNULATION */}
       {cancelModal.open && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
@@ -857,7 +824,7 @@ export default function PatientAppointmentsList({ keycloakUuid, authToken }) {
         </div>
       )}
 
-      {/* MODALE DE MODIFICATION COMPLÈTE DU RENDEZ-VOUS */}
+      {/* MODALE DE MODIFICATION */}
       {editModalOpen && selectedAppt && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">

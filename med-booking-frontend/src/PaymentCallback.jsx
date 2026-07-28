@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { apiFetch } from './api'; // 🔥 AJOUT
 
 export default function PaymentCallback() {
   const [searchParams] = useSearchParams();
@@ -8,7 +9,6 @@ export default function PaymentCallback() {
   const [isError, setIsError] = useState(false);
   const [transactionId, setTransactionId] = useState(null);
   const [appointmentId, setAppointmentId] = useState(null);
-  const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
     const apptId = searchParams.get("appointment_id");
@@ -23,30 +23,18 @@ export default function PaymentCallback() {
     setAppointmentId(apptId);
     setTransactionId(txId);
 
-    // 🔄 POLLING : On interroge périodiquement le statut du paiement
-    // Le webhook met à jour la BDD, on attend que ce soit fait
+    // 🔄 POLLING
     let attempts = 0;
-    const maxAttempts = 20; // 20 * 3s = 60 secondes max
-    const interval = 3000; // 3 secondes
+    const maxAttempts = 20;
+    const interval = 3000;
 
     const checkPaymentStatus = async () => {
       attempts++;
       
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/appointments/${apptId}/payment-status`,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              ...(token && { Authorization: `Bearer ${token}` }),
-            },
-          }
-        );
-        const data = await res.json();
+        const data = await apiFetch(`/appointments/${apptId}/payment-status`);
 
         if (data.success) {
-          // ✅ Le paiement a été confirmé par le webhook
           setStatusMessage("Paiement validé avec succès ! Redirection...");
           setTimeout(() => {
             navigate("/patient/appointments");
@@ -54,14 +42,12 @@ export default function PaymentCallback() {
           clearInterval(intervalId);
           return;
         } else if (data.status === 'declined') {
-          // ❌ Le paiement a échoué
           setStatusMessage("Le paiement a échoué. Veuillez réessayer.");
           setIsError(true);
           clearInterval(intervalId);
           return;
         }
 
-        // Si on a atteint le nombre max d'essais, on arrête
         if (attempts >= maxAttempts) {
           setStatusMessage("Le paiement est en cours de traitement. Revenez dans quelques minutes ou consultez vos rendez-vous.");
           setIsError(true);
@@ -69,7 +55,6 @@ export default function PaymentCallback() {
         }
 
       } catch (err) {
-        // Erreur réseau, on continue de réessayer
         console.error("Polling error:", err);
         if (attempts >= maxAttempts) {
           setStatusMessage("Impossible de vérifier le statut du paiement. Veuillez consulter vos rendez-vous.");
@@ -79,9 +64,7 @@ export default function PaymentCallback() {
       }
     };
 
-    // Démarrer le polling
     const intervalId = setInterval(checkPaymentStatus, interval);
-    // Premier appel immédiat
     checkPaymentStatus();
 
     return () => clearInterval(intervalId);
