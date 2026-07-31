@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { apiFetch } from './api'; // 🔥 AJOUT
+import { apiFetch } from './api';
 
 export default function PaymentCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  
   const [statusMessage, setStatusMessage] = useState("Vérification du paiement en cours...");
   const [isError, setIsError] = useState(false);
   const [transactionId, setTransactionId] = useState(null);
@@ -13,7 +14,7 @@ export default function PaymentCallback() {
   useEffect(() => {
     const apptId = searchParams.get("appointment_id");
     const txId = searchParams.get("id");
-
+    
     if (!apptId || !txId) {
       setStatusMessage("Informations de paiement manquantes.");
       setIsError(true);
@@ -23,52 +24,63 @@ export default function PaymentCallback() {
     setAppointmentId(apptId);
     setTransactionId(txId);
 
-    // 🔄 POLLING
-    let attempts = 0;
-    const maxAttempts = 20;
-    const interval = 3000;
+    let isMounted = true;
+    let retryCount = 0;
+    const MAX_RETRIES = 12; // On attend max 60 secondes (12 * 5s)
 
-    const checkPaymentStatus = async () => {
-      attempts++;
-      
+    const verifyPaymentLoop = async () => {
+      if (retryCount >= MAX_RETRIES) {
+        if (isMounted) {
+          setStatusMessage("Le serveur met trop de temps à confirmer. Vérifiez vos rendez-vous.");
+          setIsError(true);
+        }
+        return;
+      }
+
       try {
-        const data = await apiFetch(`/appointments/${apptId}/payment-status`);
+        // On demande à Laravel s'il a bien reçu le webhook et traité le paiement
+        const verifyRes = await apiFetch("/payments/verify", {
+          method: "POST",
+          body: JSON.stringify({
+            appointment_id: apptId,
+            id: txId,
+          }),
+        });
 
-        if (data.success) {
-          setStatusMessage("Paiement validé avec succès ! Redirection...");
-          setTimeout(() => {
-            navigate("/patient/appointments");
-          }, 2000);
-          clearInterval(intervalId);
+        if (verifyRes.success) {
+          // Succès ! On redirige l'utilisateur vers son dashboard
+          if (isMounted) {
+            setStatusMessage("Paiement validé avec succès !");
+            setTimeout(() => navigate("/patient/appointments"), 1500);
+          }
           return;
-        } else if (data.status === 'declined') {
-          setStatusMessage("Le paiement a échoué. Veuillez réessayer.");
-          setIsError(true);
-          clearInterval(intervalId);
-          return;
+        } else {
+          // Si c'est un échec définitif (ex: declined), on arrête et on affiche l'erreur
+          if (verifyRes.message?.includes('declined') || verifyRes.message?.includes('échoué')) {
+            if (isMounted) {
+              setStatusMessage(verifyRes.message);
+              setIsError(true);
+            }
+            return;
+          }
+          
+          // Si c'est juste "en attente", on relance la vérification après 5 secondes
+          retryCount++;
+          setTimeout(verifyPaymentLoop, 5000);
         }
-
-        if (attempts >= maxAttempts) {
-          setStatusMessage("Le paiement est en cours de traitement. Revenez dans quelques minutes ou consultez vos rendez-vous.");
-          setIsError(true);
-          clearInterval(intervalId);
-        }
-
       } catch (err) {
-        console.error("Polling error:", err);
-        if (attempts >= maxAttempts) {
-          setStatusMessage("Impossible de vérifier le statut du paiement. Veuillez consulter vos rendez-vous.");
-          setIsError(true);
-          clearInterval(intervalId);
-        }
+        console.error("Erreur lors de la vérification :", err);
+        // En cas d'erreur réseau, on réessaie aussi
+        retryCount++;
+        setTimeout(verifyPaymentLoop, 5000);
       }
     };
 
-    const intervalId = setInterval(checkPaymentStatus, interval);
-    checkPaymentStatus();
+    verifyPaymentLoop();
 
-    return () => clearInterval(intervalId);
-
+    return () => {
+      isMounted = false; // Cleanup pour éviter les fuites mémoire si l'utilisateur quitte la page
+    };
   }, [searchParams, navigate]);
 
   return (
@@ -88,7 +100,7 @@ export default function PaymentCallback() {
             <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto text-xl font-bold">
               ✕
             </div>
-            <h2 className="text-lg font-bold text-red-600">Paiement en attente</h2>
+            <h2 className="text-lg font-bold text-red-600">Paiement non confirmé</h2>
             <p className="text-sm text-gray-600">{statusMessage}</p>
             <button
               onClick={() => navigate("/patient/appointments")}

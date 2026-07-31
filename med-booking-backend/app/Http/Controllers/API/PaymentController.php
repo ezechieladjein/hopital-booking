@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use FedaPay\FedaPay;
 use FedaPay\Transaction;
+use FedaPay\Webhook;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -61,7 +62,7 @@ class PaymentController extends Controller
                 ]
             ]);
 
-            // 2. Enregistrer la transaction en attente dans la table local `payments`
+            // 2. Enregistrer la transaction en attente dans la table locale `payments`
             Payment::create([
                 'appointment_id' => $appointment->id,
                 'fedapay_transaction_id' => $transaction->id,
@@ -92,7 +93,7 @@ class PaymentController extends Controller
     }
 
     /**
-     * Vérifie et valide le paiement auprès de l'API FedaPay
+     * Vérifie et valide le paiement auprès de l'API FedaPay (Fallback retour navigateur)
      * POST /api/payments/verify
      */
     public function verifyPayment(Request $request): JsonResponse
@@ -105,39 +106,41 @@ class PaymentController extends Controller
         try {
             DB::beginTransaction();
 
+            // Vérification locale d'abord
+            if ($payment->status === 'approved') {
+                DB::commit();
+                return response()->json(['success' => true, 'message' => 'Paiement déjà confirmé.']);
+            }
+
+            // Si le paiement est encore 'pending' dans la base, on laisse le temps au webhook 
+            // d'arriver au lieu de contacter systématiquement l'API FedaPay.
+            if ($payment->status === 'pending') {
+                DB::commit();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Paiement en cours de traitement par le fournisseur.'
+                ], 202); // 202 Accepted = demande acceptée mais pas encore traitée
+            }
+
+            // Sinon, on contacte l'API FedaPay...
+
             $fedapayTx = Transaction::retrieve($request->id);
             $payment = Payment::where('fedapay_transaction_id', $request->id)->firstOrFail();
-
-            // Chargement de toutes les relations dès le début
-            $appointment = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
+            $appointment = Appointment::with(['patient', 'slot.doctor.speciality'])
                 ->findOrFail($request->appointment_id);
 
-            if ($fedapayTx->status === 'approved') {
-                $payment->update([
-                    'status' => 'approved',
-                    'payment_method' => $fedapayTx->mode ?? 'mobile_money',
-                    'fedapay_receipt_url' => $fedapayTx->receipt_url ?? null,
-                ]);
-
-                $appointment->update([
-                    'status' => 'CONFIRME'
-                ]);
-
-                if ($appointment->slot) {
-                    $appointment->slot->update([
-                        'status' => 'Occupé',
-                        'is_available' => false,
-                        'reserved_until' => null,
-                    ]);
-                }
-
+            // Evite les doubles traitements si déjà approuvé
+            if ($payment->status === 'approved') {
                 DB::commit();
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Paiement déjà confirmé.'
+                ]);
+            }
 
-                // Plus besoin de $appointment->load(...) ici !
-                if ($appointment->patient && $appointment->patient->email) {
-                    Mail::to($appointment->patient->email)
-                        ->queue(new PaymentSuccessfulMail($payment));
-                }
+            if ($fedapayTx->status === 'approved') {
+                $this->markAsApproved($payment, $appointment, $fedapayTx->mode, $fedapayTx->receipt_url);
+                DB::commit();
 
                 return response()->json([
                     'success' => true,
@@ -147,7 +150,6 @@ class PaymentController extends Controller
                 $payment->update(['status' => 'declined']);
                 DB::commit();
 
-                // Désormais sécurisé : $appointment->patient est déjà disponible
                 if ($appointment->patient && $appointment->patient->email) {
                     Mail::to($appointment->patient->email)
                         ->queue(new PaymentFailedMail($payment));
@@ -168,152 +170,129 @@ class PaymentController extends Controller
     }
 
     /**
-     * Effectuer un remboursement (Refund)
-     * POST /api/payments/refund
-     */
-    public function refundPayment(Request $request): JsonResponse
-    {
-        $request->validate([
-            'appointment_id' => 'required|exists:appointments,id',
-            'reason' => 'nullable|string'
-        ]);
-
-        try {
-            $payment = Payment::where('appointment_id', $request->appointment_id)
-                ->where('status', 'approved')
-                ->firstOrFail();
-
-            $transaction = Transaction::retrieve($payment->fedapay_transaction_id);
-            $transaction->refund();
-
-            DB::beginTransaction();
-
-            $payment->update([
-                'status' => 'refunded',
-                'refunded_amount' => $payment->amount_paid
-            ]);
-
-            $appointment = Appointment::findOrFail($request->appointment_id);
-            $appointment->update([
-                'status' => 'ANNULE_REMBOURSE',
-                'cancellation_reason' => $request->reason ?? 'Remboursement effectué.'
-            ]);
-
-            DB::commit();
-
-            // 📩 ENVOI EMAIL : Notification de remboursement
-            $appointment->load('patient');
-            if ($appointment->patient && $appointment->patient->email) {
-                Mail::to($appointment->patient->email)
-                    ->queue(new RefundEffectedMail($payment));
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Remboursement effectué avec succès.'
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Erreur lors du remboursement : ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
      * Webhook FedaPay
      * POST /api/payments/webhook
      */
     public function handleWebhook(Request $request): JsonResponse
     {
-        Log::info('🔔 WEBHOOK RECU !', [
-            'headers' => $request->headers->all(),
-            'payload' => $request->all()
+        $payload = $request->getContent();
+        $signature = $request->header('X-FedaPay-Signature');
+
+        Log::info('FedaPay WEBHOOK RECU', [
+            'event' => $request->input('name'),
+            'signature' => $signature,
+            'payload' => $request->all(),
         ]);
 
-        $signature = $request->header('X-FedaPay-Signature');
-        $payload = $request->getContent();
+        Log::info('FedaPay DEBUG Signature', [
+            'header_received' => $signature,
+            'secret_used' => config('services.fedapay.webhook_secret'),
+            'payload' => $payload
+        ]);
 
+        // Vérification signature
         if (!$this->verifyWebhookSignature($payload, $signature)) {
+            Log::error('Signature Webhook invalide ou non configurée');
             return response()->json(['error' => 'Invalid signature'], 401);
         }
 
-        $data = $request->all();
-        $transactionId = $data['data']['id'] ?? null;
+        $event = $request->input('name');
+        $entity = $request->input('entity', []);
+        $transactionId = $entity['id'] ?? null;
 
         if (!$transactionId) {
-            return response()->json(['error' => 'Missing transaction ID'], 400);
+            return response()->json(['error' => 'Transaction ID missing'], 400);
         }
 
         try {
             DB::beginTransaction();
 
             $payment = Payment::where('fedapay_transaction_id', $transactionId)->first();
+
             if (!$payment) {
-                return response()->json(['error' => 'Transaction not found'], 404);
+                Log::warning('Paiement introuvable', ['transaction_id' => $transactionId]);
+                DB::commit();
+                return response()->json(['status' => 'ignored']);
             }
 
-            $fedapayTx = Transaction::retrieve($transactionId);
+            // Ne pas traiter deux fois une transaction déjà validée
+            if ($payment->status === 'approved') {
+                DB::commit();
+                return response()->json(['status' => 'already_processed']);
+            }
+
             $appointment = Appointment::with(['patient', 'slot.doctor'])->find($payment->appointment_id);
 
-            if ($fedapayTx->status === 'approved') {
-                $payment->update([
-                    'status' => 'approved',
-                    'payment_method' => $fedapayTx->mode ?? 'mobile_money',
-                    'fedapay_receipt_url' => $fedapayTx->receipt_url ?? null,
-                ]);
+            $status = $entity['status'] ?? null;
 
-                if ($appointment) {
-                    $appointment->update(['status' => 'CONFIRME']);
-
-                    if ($appointment->slot) {
-                        $appointment->slot->update([
-                            'status' => 'Occupé',
-                            'is_available' => false,
-                            'reserved_until' => null,
-                        ]);
-                    }
-                }
-
-                DB::commit();
-
-                if ($appointment && $appointment->patient && $appointment->patient->email) {
-                    Mail::to($appointment->patient->email)
-                        ->queue(new PaymentSuccessfulMail($payment));
-                }
-
-                Log::info("Webhook: Paiement approuvé pour le RDV #{$payment->appointment_id}");
-            } elseif (in_array($fedapayTx->status, ['declined', 'abandoned'])) {
+            if ($event === 'transaction.approved' || ($event === 'transaction.update' && $status === 'approved')) {
+                $this->markAsApproved(
+                    $payment,
+                    $appointment,
+                    $entity['mode'] ?? null,
+                    $entity['receipt_url'] ?? null
+                );
+            } elseif (in_array($event, ['transaction.declined', 'transaction.canceled'])) {
                 $payment->update(['status' => 'declined']);
-                DB::commit();
-
-                if ($appointment && $appointment->patient && $appointment->patient->email) {
-                    Mail::to($appointment->patient->email)
-                        ->queue(new PaymentFailedMail($payment));
+                if ($appointment?->patient && $appointment->patient->email) {
+                    Mail::to($appointment->patient->email)->queue(new PaymentFailedMail($payment));
                 }
-
-                Log::info("Webhook: Paiement échoué pour le RDV #{$payment->appointment_id}");
             }
 
+            DB::commit();
             return response()->json(['status' => 'ok']);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error("Webhook error: " . $e->getMessage());
-            return response()->json(['error' => $e->getMessage()], 500);
+            Log::error('Erreur traitement webhook FedaPay', ['message' => $e->getMessage()]);
+            return response()->json(['error' => 'Webhook processing failed'], 500);
         }
     }
 
-    private function verifyWebhookSignature($payload, $signature): bool
+    /**
+     * Méthode privée pour centraliser la validation du rendez-vous
+     */
+    private function markAsApproved(Payment $payment, ?Appointment $appointment, ?string $mode, ?string $receiptUrl): void
+    {
+        $payment->update([
+            'status' => 'approved',
+            'payment_method' => $this->normalizePaymentMethod($mode),
+            'fedapay_receipt_url' => $receiptUrl,
+        ]);
+
+        if ($appointment) {
+            $appointment->update(['status' => 'CONFIRME']);
+
+            if ($appointment->slot) {
+                $appointment->slot->update([
+                    'status' => 'Occupé',
+                    'is_available' => false,
+                    'reserved_until' => null,
+                ]);
+            }
+
+            if ($appointment->patient && $appointment->patient->email) {
+                Mail::to($appointment->patient->email)->queue(new PaymentSuccessfulMail($appointment));
+            }
+        }
+    }
+
+    /**
+     * Vérification de signature conforme à FedaPay
+     */
+    private function verifyWebhookSignature(string $payload, ?string $signature): bool
     {
         $secret = config('services.fedapay.webhook_secret');
-        if (empty($secret)) {
-            Log::warning("Webhook secret not configured!");
+
+        if (empty($secret) || empty($signature)) {
+            Log::error('FedaPay webhook secret ou signature manquant.');
             return false;
         }
 
-        $computed = hash_hmac('sha256', $payload, $secret);
-        return hash_equals($computed, $signature);
+        // Calculez le HMAC-SHA256 du payload brut reçu
+        $expectedSignature = hash_hmac('sha256', $payload, $secret);
+
+        // Comparez de manière sécurisée (anti-timing attack)
+        return hash_equals($expectedSignature, $signature);
     }
 
     public function getPaymentStatus(Appointment $appointment): JsonResponse
@@ -330,9 +309,16 @@ class PaymentController extends Controller
         return response()->json([
             'success' => $payment->status === 'approved',
             'status' => $payment->status,
-            'message' => $payment->status === 'approved'
-                ? 'Paiement confirmé'
-                : 'Paiement en attente ou échoué'
+            'message' => $payment->status === 'approved' ? 'Paiement confirmé' : 'Paiement en attente ou échoué'
         ]);
+    }
+
+    private function normalizePaymentMethod(?string $mode): string
+    {
+        return match ($mode) {
+            'momo_test', 'mtn', 'mtn_ci', 'mtn_open', 'mtn_ecw', 'moov', 'moov_ci', 'moov_bf' => 'mobile_money',
+            'gim_uemoa_card', 'cybersource', 'stripe_gw' => 'card',
+            default => 'mobile_money',
+        };
     }
 }

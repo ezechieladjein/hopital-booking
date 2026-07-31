@@ -1,0 +1,49 @@
+/* Arrière-plan général de la page */
+body {
+    background-color: #0D1B3D !important;
+    background-image: linear-gradient(135deg, #0D1B3D 0%, #1A2B56 100%) !important;
+    font-family: 'Poppins', sans-serif !important;
+}
+
+/* Carte centrale de connexion */
+.card-pf {
+    background: #FFFFFF !important;
+    border-radius: 16px !important;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3) !important;
+    border: none !important;
+    padding: 35px !important;
+}
+
+/* Titre principal */
+#kc-page-title {
+    color: #0D1B3D !important;
+    font-weight: 700 !important;
+}
+
+/* Champs de texte (Username / Password) */
+.form-control {
+    border-radius: 8px !important;
+    border: 1px solid #E5E7EB !important;
+    padding: 12px !important;
+}
+
+.form-control:focus {
+    border-color: #2EAF5E !important;
+    box-shadow: 0 0 0 3px rgba(46, 175, 94, 0.2) !important;
+}
+
+/* Bouton principal "Se connecter" */
+#kc-login {
+    background-color: #2EAF5E !important;
+    border-color: #2EAF5E !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    color: #FFFFFF !important;
+    padding: 12px !important;
+    width: 100% !important;
+    cursor: pointer !important;
+}
+
+#kc-login:hover {
+    background-color: #25934f !important;
+}

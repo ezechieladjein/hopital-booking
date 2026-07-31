@@ -7,11 +7,15 @@ const API_BASE_URL = 'http://localhost:8000/api';
  * Récupère les headers avec le token Keycloak
  */
 export const getAuthHeaders = () => {
-    return {
-        'Content-Type': 'application/json',
+    const headers = {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${keycloak.token}`,
     };
+
+    if (keycloak && keycloak.token) {
+        headers['Authorization'] = `Bearer ${keycloak.token}`;
+    }
+
+    return headers;
 };
 
 /**
@@ -20,21 +24,27 @@ export const getAuthHeaders = () => {
 export const apiFetch = async (endpoint, options = {}) => {
     const url = `${API_BASE_URL}${endpoint}`;
     
-    const defaultOptions = {
-        headers: getAuthHeaders(),
+    const isFormData = options.body instanceof FormData;
+
+    // Construction des headers
+    const headers = {
+        ...getAuthHeaders(),
+        ...options.headers,
     };
-    
-    const mergedOptions = {
-        ...defaultOptions,
+    // Le navigateur doit le définir lui-même avec le boundary.
+    if (isFormData) {
+        delete headers['Content-Type'];
+    } else if (!headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const config = {
         ...options,
-        headers: {
-            ...defaultOptions.headers,
-            ...options.headers,
-        },
+        headers,
     };
 
     try {
-        const response = await fetch(url, mergedOptions);
+        const response = await fetch(url, config);
         
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
@@ -43,7 +53,7 @@ export const apiFetch = async (endpoint, options = {}) => {
         
         return response.json();
     } catch (error) {
-        console.error('❌ API Error:', error);
+        console.error('API Error:', error);
         throw error;
     }
 };

@@ -14,16 +14,14 @@ class SyncKeycloakUsers extends Command
 
     public function handle()
     {
-        $this->info('🔄 Début de la synchronisation des utilisateurs Keycloak...');
+        $this->info('Début de la synchronisation des utilisateurs Keycloak...');
 
         try {
             // 1. Récupérer le token admin
             $adminToken = $this->getAdminToken();
-            
             // 2. Récupérer tous les utilisateurs Keycloak
             $keycloakUsers = $this->getKeycloakUsers($adminToken);
-            
-            $this->info("📋 {$keycloakUsers['count']} utilisateurs trouvés dans Keycloak");
+            $this->info("{$keycloakUsers['count']} utilisateurs trouvés dans Keycloak");
 
             $created = 0;
             $updated = 0;
@@ -32,7 +30,6 @@ class SyncKeycloakUsers extends Command
             foreach ($keycloakUsers['users'] as $keycloakUser) {
                 // Vérifier si l'utilisateur existe déjà
                 $user = User::where('keycloak_id', $keycloakUser['id'])->first();
-                
                 if ($user) {
                     // Mettre à jour les informations
                     $user->update([
@@ -43,7 +40,6 @@ class SyncKeycloakUsers extends Command
                 } else {
                     // Vérifier si l'email existe déjà (sans keycloak_id)
                     $existingUser = User::where('email', $keycloakUser['email'])->first();
-                    
                     if ($existingUser) {
                         // Mettre à jour le keycloak_id
                         $existingUser->update(['keycloak_id' => $keycloakUser['id']]);
@@ -62,13 +58,13 @@ class SyncKeycloakUsers extends Command
                 }
             }
 
-            $this->info("✅ Synchronisation terminée :");
+            $this->info("Synchronisation terminée :");
             $this->info("   - {$created} utilisateurs créés");
             $this->info("   - {$updated} utilisateurs mis à jour");
             $this->info("   - {$skipped} utilisateurs ignorés");
 
         } catch (\Exception $e) {
-            $this->error("❌ Erreur lors de la synchronisation : " . $e->getMessage());
+            $this->error("Erreur lors de la synchronisation : " . $e->getMessage());
             $this->error($e->getTraceAsString());
         }
     }
@@ -77,7 +73,6 @@ class SyncKeycloakUsers extends Command
     {
         $client = new Client();
         $url = env('KEYCLOAK_BASE_URL') . '/realms/' . env('KEYCLOAK_REALM') . '/protocol/openid-connect/token';
-        
         $response = $client->post($url, [
             'form_params' => [
                 'client_id' => env('KEYCLOAK_ADMIN_CLIENT_ID', 'admin-cli'),
@@ -94,13 +89,11 @@ class SyncKeycloakUsers extends Command
     {
         $client = new Client();
         $url = env('KEYCLOAK_BASE_URL') . '/admin/realms/' . env('KEYCLOAK_REALM') . '/users?max=1000';
-        
         $response = $client->get($url, [
             'headers' => ['Authorization' => 'Bearer ' . $token]
         ]);
 
         $users = json_decode($response->getBody(), true);
-        
         return [
             'count' => count($users),
             'users' => $users
@@ -118,15 +111,12 @@ class SyncKeycloakUsers extends Command
             ]);
 
             $roles = json_decode($response->getBody(), true);
-            
-            // Déterminer le rôle principal
             foreach ($roles as $role) {
                 if ($role['name'] === 'admin') return 'admin';
                 if ($role['name'] === 'secretary') return 'secretary';
                 if ($role['name'] === 'patient') return 'patient';
             }
-            
-            return 'patient'; // Rôle par défaut
+            return 'patient';
         } catch (\Exception $e) {
             return 'patient';
         }

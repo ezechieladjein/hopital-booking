@@ -530,7 +530,7 @@ export default function AdminDashboard() {
       {/* 4. VUE : ABSENCES MÉDECINS */}
       {activeTab === "unavailabilities" && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-bold text-[#0D1B3D]">📅 Registre des Absences et Indisponibilités Saisies</h2>
+          <h2 className="text-base font-bold text-[#0D1B3D]">Registre des Absences et Indisponibilités Saisies</h2>
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
               <tr>

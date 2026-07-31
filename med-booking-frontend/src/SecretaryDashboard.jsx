@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiFetch } from './api'; // 🔥 AJOUT
+import axios from 'axios';
+import { apiFetch } from './api';
 
 const API_BASE_URL = "http://localhost:8000/api";
 const STORAGE_BASE_URL = "http://localhost:8000/storage";
@@ -53,7 +54,7 @@ export default function SecretaryDashboard() {
   const [cancellationReason, setCancellationReason] = useState("");
   const [isRejecting, setIsRejecting] = useState(false);
 
-  // 🔥 fetchData avec apiFetch
+  // fetchData avec apiFetch
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -78,7 +79,7 @@ export default function SecretaryDashboard() {
     fetchData();
   }, []);
 
-  // 🔥 fetchDoctorData avec apiFetch
+  // fetchDoctorData avec apiFetch
   const fetchDoctorData = (doctorId, date) => {
     apiFetch(`/doctors/${doctorId}/slots?date=${date}`)
       .then((data) => {
@@ -152,7 +153,7 @@ export default function SecretaryDashboard() {
   const getInsuranceDocumentUrl = (path) => {
     if (!path) return null;
     if (path.startsWith("http")) return path;
-    const cleanPath = path.replace(/^public\//, "");
+    const cleanPath = path.replace(/^storage\//, "");
     return `${STORAGE_BASE_URL}/${cleanPath}`;
   };
 
@@ -165,44 +166,47 @@ export default function SecretaryDashboard() {
     );
   };
 
-  // 🔥 handleBlockAction avec apiFetch
-  const handleBlockAction = (isFullDay = false) => {
-    if (!isFullDay && selectedSlotIds.length === 0) {
-      return alert("Veuillez sélectionner au moins un créneau à bloquer.");
-    }
+  // handleBlockAction avec apiFetch (sécurisé avec Token Keycloak)
+  const handleBlockAction = async (isFullDay) => {
+    try {
+      // 1. Formatage propre de la date (YYYY-MM-DD)
+      const formattedDate = typeof selectedDateSlots === 'string' && selectedDateSlots.includes('T')
+        ? selectedDateSlots.split('T')[0]
+        : selectedDateSlots;
 
-    const reason = prompt(
-      isFullDay
-        ? `Motif du blocage de TOUTE la journée du ${selectedDateSlots} :`
-        : `Motif du blocage des ${selectedSlotIds.length} créneaux sélectionnés :`,
-      "Urgence / Indisponibilité",
-    );
+      // 2. Formatage des IDs des créneaux
+      const formattedSlotIds = isFullDay
+        ? []
+        : selectedSlotIds.map(slot => (typeof slot === 'object' ? slot.id : slot));
 
-    if (!reason) return;
-
-    apiFetch('/secretary/unavailabilities/block', {
-      method: "POST",
-      body: JSON.stringify({
-        doctor_id: selectedDoctor.id,
-        date: selectedDateSlots,
+      const payload = {
+        doctor_id: selectedDoctor?.id,
+        date: formattedDate,
         type: "URGENCE",
-        reason,
-        slot_ids: isFullDay ? null : selectedSlotIds,
-      }),
-    })
-      .then((data) => {
-        if (data.success) {
-          alert(data.message);
-          setSelectedSlotIds([]);
-          fetchDoctorData(selectedDoctor.id, selectedDateSlots);
-          fetchData();
-        }
-      })
-      .catch(() => alert("Erreur lors du blocage"));
+        reason: "Indisponibilité déclarée",
+        slot_ids: formattedSlotIds,
+      };
+
+      // 3. Appel via apiFetch (injecte automatiquement Authorization: Bearer <keycloak.token>)
+      const data = await apiFetch('/secretary/unavailabilities/block', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      if (data.success) {
+        alert(data.message);
+        setSelectedSlotIds([]);
+        // Recharger les créneaux pour rafraîchir l'affichage
+        fetchDoctorData(selectedDoctor.id, formattedDate);
+      }
+    } catch (error) {
+      console.error("Erreur de blocage:", error.message);
+      alert(error.message || "Erreur lors du blocage");
+    }
   };
 
-  // 🔥 handleUnblock avec apiFetch
-  const handleUnblock = (unavailId) => {
+  // handleUnblock avec apiFetch
+  const handleUnblock = async (unavailId) => {
     if (
       !window.confirm(
         "Voulez-vous débloquer cette période et réouvrir les créneaux ?",
@@ -210,20 +214,22 @@ export default function SecretaryDashboard() {
     )
       return;
 
-    apiFetch(`/secretary/unavailabilities/${unavailId}/unblock`, {
-      method: "POST",
-    })
-      .then((data) => {
-        if (data.success) {
-          alert(data.message);
-          fetchDoctorData(selectedDoctor.id, selectedDateSlots);
-          fetchData();
-        }
-      })
-      .catch(() => alert("Erreur lors du déblocage"));
-  };
+    try {
+      const data = await apiFetch(`/secretary/unavailabilities/${unavailId}/unblock`, {
+        method: "POST",
+      });
 
-  // 🔥 handleUpdateStatus avec apiFetch
+      if (data.success) {
+        alert(data.message);
+        fetchDoctorData(selectedDoctor.id, selectedDateSlots);
+        fetchData();
+      }
+    } catch (error) {
+      console.error("Erreur de déblocage:", error.message);
+      alert(error.message || "Erreur lors du déblocage");
+    }
+  };
+  // handleUpdateStatus avec apiFetch
   const handleUpdateStatus = async (appointmentId, newStatus) => {
     const statusLabel = newStatus === "TERMINE" ? "Terminé" : "Patient Absent";
     if (
@@ -250,7 +256,7 @@ export default function SecretaryDashboard() {
     }
   };
 
-  // 🔥 handleValidateInsurance avec apiFetch
+  // handleValidateInsurance avec apiFetch
   const handleValidateInsurance = () => {
     apiFetch('/secretary/validate-insurance', {
       method: "POST",
@@ -265,7 +271,7 @@ export default function SecretaryDashboard() {
     });
   };
 
-  // 🔥 handleRejectInsurance avec apiFetch
+  // handleRejectInsurance avec apiFetch
   const handleRejectInsurance = () => {
     apiFetch('/secretary/reject-insurance', {
       method: "POST",
@@ -300,7 +306,7 @@ export default function SecretaryDashboard() {
     setWeeklyAvailabilities(updated);
   };
 
-  // 🔥 handleSaveAvailabilities avec apiFetch
+  // handleSaveAvailabilities avec apiFetch
   const handleSaveAvailabilities = async () => {
     if (!selectedDoctor) return;
     try {
@@ -317,7 +323,7 @@ export default function SecretaryDashboard() {
     }
   };
 
-  // 🔥 handleGenerateSlots avec apiFetch
+  // handleGenerateSlots avec apiFetch
   const handleGenerateSlots = async () => {
     if (!selectedDoctor || !startDateGen || !endDateGen) {
       return alert("Veuillez remplir les dates de début et de fin.");
@@ -367,21 +373,19 @@ export default function SecretaryDashboard() {
         <div className="flex bg-gray-100 p-1.5 rounded-xl gap-2">
           <button
             onClick={() => setActiveTab("appointments")}
-            className={`px-4 py-2.5 rounded-lg text-xs font-bold transition ${
-              activeTab === "appointments"
-                ? "bg-[#0D1B3D] text-white shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
+            className={`px-4 py-2.5 rounded-lg text-xs font-bold transition ${activeTab === "appointments"
+              ? "bg-[#0D1B3D] text-white shadow-sm"
+              : "text-gray-600 hover:text-gray-900"
+              }`}
           >
             Rendez-vous ({appointments.length})
           </button>
           <button
             onClick={() => setActiveTab("doctors")}
-            className={`px-4 py-2.5 rounded-lg text-xs font-bold transition ${
-              activeTab === "doctors"
-                ? "bg-[#0D1B3D] text-white shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
+            className={`px-4 py-2.5 rounded-lg text-xs font-bold transition ${activeTab === "doctors"
+              ? "bg-[#0D1B3D] text-white shadow-sm"
+              : "text-gray-600 hover:text-gray-900"
+              }`}
           >
             Médecins & Planning
           </button>
@@ -416,6 +420,7 @@ export default function SecretaryDashboard() {
               <option value="TERMINE">Terminé</option>
               <option value="ABSENT">Absent</option>
               <option value="ANNULE_HOPITAL">Annulé par hôpital</option>
+              <option value="ANNULE_PATIENT">Annulé par patient</option>
             </select>
 
             <select
@@ -506,7 +511,7 @@ export default function SecretaryDashboard() {
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           {appt.has_insurance &&
-                          appt.status === "EN_ATTENTE_VALIDATION" ? (
+                            appt.status === "EN_ATTENTE_VALIDATION" ? (
                             <button
                               onClick={() => setSelectedAppointment(appt)}
                               className="bg-[#1565C0] hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-[11px] font-bold transition"
@@ -585,11 +590,10 @@ export default function SecretaryDashboard() {
                 <div
                   key={doc.id}
                   onClick={() => setSelectedDoctor(doc)}
-                  className={`p-3 rounded-xl cursor-pointer transition flex justify-between items-center ${
-                    selectedDoctor?.id === doc.id
-                      ? "bg-blue-50 border border-blue-200"
-                      : "hover:bg-gray-50"
-                  }`}
+                  className={`p-3 rounded-xl cursor-pointer transition flex justify-between items-center ${selectedDoctor?.id === doc.id
+                    ? "bg-blue-50 border border-blue-200"
+                    : "hover:bg-gray-50"
+                    }`}
                 >
                   <div>
                     <p className="font-bold text-xs text-[#0D1B3D]">
@@ -740,13 +744,12 @@ export default function SecretaryDashboard() {
 
                     {genMessage && (
                       <p
-                        className={`text-xs font-bold p-2 rounded-lg ${
-                          genMessage.type === "success"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : genMessage.type === "danger"
-                              ? "bg-red-100 text-red-800"
-                              : "bg-blue-100 text-blue-800"
-                        }`}
+                        className={`text-xs font-bold p-2 rounded-lg ${genMessage.type === "success"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : genMessage.type === "danger"
+                            ? "bg-red-100 text-red-800"
+                            : "bg-blue-100 text-blue-800"
+                          }`}
                       >
                         {genMessage.text}
                       </p>
@@ -813,26 +816,23 @@ export default function SecretaryDashboard() {
                             onClick={() =>
                               isAvailable && handleToggleSlotSelection(slot.id)
                             }
-                            className={`p-3 rounded-xl border text-center transition cursor-pointer relative ${
-                              isSelected
-                                ? "ring-2 ring-red-500 border-transparent bg-red-100/50"
-                                : ""
-                            } ${
-                              isAvailable
+                            className={`p-3 rounded-xl border text-center transition cursor-pointer relative ${isSelected
+                              ? "ring-2 ring-red-500 border-transparent bg-red-100/50"
+                              : ""
+                              } ${isAvailable
                                 ? "bg-emerald-50/50 border-emerald-200 hover:bg-emerald-100/50"
                                 : "bg-gray-100 border-gray-200 opacity-60 cursor-not-allowed"
-                            }`}
+                              }`}
                           >
                             <p className="font-bold text-xs">
                               {slot.start_time?.substring(0, 5)} -{" "}
                               {slot.end_time?.substring(0, 5)}
                             </p>
                             <span
-                              className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                                isAvailable
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : "bg-gray-200 text-gray-700"
-                              }`}
+                              className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${isAvailable
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-gray-200 text-gray-700"
+                                }`}
                             >
                               {slot.status}
                             </span>
@@ -886,11 +886,10 @@ export default function SecretaryDashboard() {
                               </td>
                               <td className="py-3 px-3 text-center">
                                 <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    u.status === "ACTIF"
-                                      ? "bg-red-100 text-red-700"
-                                      : "bg-gray-100 text-gray-500"
-                                  }`}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${u.status === "ACTIF"
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-gray-100 text-gray-500"
+                                    }`}
                                 >
                                   {u.status === "ACTIF" ? "BLOQUÉ" : "DÉBLOQUÉ"}
                                 </span>
@@ -948,9 +947,11 @@ export default function SecretaryDashboard() {
 
               {selectedAppointment.insurance_document_path ? (
                 <a
-                  href={getInsuranceDocumentUrl(
-                    selectedAppointment.insurance_document_path,
-                  )}
+                  href={
+                    selectedAppointment.insurance_document_path.startsWith('http')
+                      ? selectedAppointment.insurance_document_path
+                      : `http://localhost:8000/${selectedAppointment.insurance_document_path}` // Adaptez avec l'URL backend
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-2 rounded-lg w-full justify-center transition border border-blue-100"

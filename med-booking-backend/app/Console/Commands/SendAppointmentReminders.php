@@ -14,13 +14,12 @@ class SendAppointmentReminders extends Command
 
     public function handle()
     {
-        // Plage horaire ciblant exactement la fenêtre H+23 à H+25
         $startWindow = Carbon::now()->addHours(23);
         $endWindow = Carbon::now()->addHours(25);
 
         $appointments = Appointment::with(['patient', 'slot.doctor.user', 'slot.doctor.speciality'])
             ->where('status', 'CONFIRME')
-            ->whereNull('reminder_sent_at') // Évite les doublons
+            ->whereNull('reminder_sent_at')
             ->whereHas('slot', function ($query) use ($startWindow, $endWindow) {
                 $query->whereBetween('date_consultation', [$startWindow, $endWindow]);
             })

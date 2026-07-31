@@ -1,4 +1,4 @@
-version: "3"
+﻿version: "3"
 agent:
   authtoken: "3GGz0hioDgip8xvLg3TfZsd3sQ9_7cWMSyDRPZyWAei74JNjn"
 tunnels:
@@ -8,4 +8,3 @@ tunnels:
   keycloak:
     proto: http
     addr: 8085
-

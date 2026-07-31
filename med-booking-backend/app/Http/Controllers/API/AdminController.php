@@ -297,94 +297,90 @@ class AdminController extends Controller
     }
 
     /**
- * Créer un utilisateur staff (secrétaire ou admin) - Version complète
- */
-public function storeStaffUser(Request $request): JsonResponse
-{
-    $request->validate([
-        'nom'       => 'required|string|max:100',
-        'prenom'    => 'required|string|max:100',
-        'email'     => 'required|email|max:150|unique:users,email',
-        'telephone' => 'nullable|string|max:30',
-        'role'      => 'required|in:secretaire,administrateur',
-        'password'  => 'required|string|min:8',
-    ]);
-
-    DB::beginTransaction();
-
-    try {
-        // 1. Récupérer un token d'administration Keycloak
-        $tokenResponse = Http::asForm()->post(env('KEYCLOAK_BASE_URL') . '/realms/' . env('KEYCLOAK_REALM') . '/protocol/openid-connect/token', [
-            'client_id'     => 'admin-cli',
-            'client_secret' => env('KEYCLOAK_ADMIN_CLIENT_SECRET'),
-            'grant_type'    => 'client_credentials',
+     * Créer un utilisateur staff (secrétaire ou admin) - Version complète
+     */
+    public function storeStaffUser(Request $request): JsonResponse
+    {
+        $request->validate([
+            'nom'       => 'required|string|max:100',
+            'prenom'    => 'required|string|max:100',
+            'email'     => 'required|email|max:150|unique:users,email',
+            'telephone' => 'nullable|string|max:30',
+            'role'      => 'required|in:secretaire,administrateur',
+            'password'  => 'required|string|min:8',
         ]);
 
-        if (!$tokenResponse->successful()) {
-            DB::rollBack();
-            return response()->json([
-                'success' => false, 
-                'message' => 'Impossible de s\'authentifier auprès de Keycloak Admin.',
-                'debug' => $tokenResponse->body()
-            ], 500);
-        }
+        DB::beginTransaction();
 
-        $adminToken = $tokenResponse->json()['access_token'];
-        $baseUrl = env('KEYCLOAK_BASE_URL') . '/admin/realms/' . env('KEYCLOAK_REALM');
-
-        // 2. Créer l'utilisateur dans Keycloak
-        $createUserResponse = Http::withToken($adminToken)->post($baseUrl . "/users", [
-            'username'      => $request->email,
-            'email'         => $request->email,
-            'firstName'     => $request->prenom,
-            'lastName'      => $request->nom,
-            'enabled'       => true,
-            'emailVerified' => true,
-            'credentials'   => [
-                [
-                    'type'      => 'password',
-                    'value'     => $request->password,
-                    'temporary' => true, // 🔥 Mot de passe temporaire = doit être changé à la première connexion
-                ]
-            ],
-        ]);
-
-        if ($createUserResponse->status() !== 201) {
-            DB::rollBack();
-            return response()->json([
-                'success' => false, 
-                'message' => 'Erreur lors de la création Keycloak.',
-                'debug' => $createUserResponse->body()
-            ], 400);
-        }
-
-        // 3. Récupérer l'UUID Keycloak généré
-        $locationHeader = $createUserResponse->header('Location');
-        $keycloakUuid = last(explode('/', $locationHeader));
-
-        // 4. Assigner le rôle dans Keycloak
-        $roleName = $request->role === 'secretaire' ? 'secretary' : 'admin';
-        
-        // Récupérer le rôle
-        $roleResponse = Http::withToken($adminToken)->get($baseUrl . "/roles/{$roleName}");
-        
-        if ($roleResponse->successful()) {
-            $roleData = $roleResponse->json();
-            Http::withToken($adminToken)->post($baseUrl . "/users/{$keycloakUuid}/role-mappings/realm", [
-                [
-                    'id'   => $roleData['id'],
-                    'name' => $roleData['name'],
-                ]
+        try {
+            // 1. Récupérer un token d'administration Keycloak
+            $tokenResponse = Http::asForm()->post(env('KEYCLOAK_BASE_URL') . '/realms/' . env('KEYCLOAK_REALM') . '/protocol/openid-connect/token', [
+                'client_id'     => 'admin-cli',
+                'client_secret' => env('KEYCLOAK_ADMIN_CLIENT_SECRET'),
+                'grant_type'    => 'client_credentials',
             ]);
-        } else {
-            // Si le rôle n'existe pas, le créer
-            $createRoleResponse = Http::withToken($adminToken)->post($baseUrl . "/roles", [
-                'name' => $roleName,
-                'description' => $roleName === 'admin' ? 'Administrateur' : 'Secrétaire',
+
+            if (!$tokenResponse->successful()) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Impossible de s\'authentifier auprès de Keycloak Admin.',
+                    'debug'   => $tokenResponse->body()
+                ], 500);
+            }
+
+            $adminToken = $tokenResponse->json()['access_token'];
+            $baseUrl = env('KEYCLOAK_BASE_URL') . '/admin/realms/' . env('KEYCLOAK_REALM');
+
+            // 2. Créer l'utilisateur dans Keycloak
+            $createUserResponse = Http::withToken($adminToken)->post($baseUrl . "/users", [
+                'username'      => $request->email,
+                'email'         => $request->email,
+                'firstName'     => $request->prenom,
+                'lastName'      => $request->nom,
+                'enabled'       => true,
+                'emailVerified' => true,
+                'credentials'   => [
+                    [
+                        'type'      => 'password',
+                        'value'     => $request->password,
+                        'temporary' => true, // Mot de passe temporaire
+                    ]
+                ],
             ]);
-            
-            if ($createRoleResponse->successful()) {
-                $roleData = $createRoleResponse->json();
+
+            if ($createUserResponse->status() !== 201) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Erreur lors de la création Keycloak.',
+                    'debug'   => $createUserResponse->body()
+                ], 400);
+            }
+
+            // 3. Récupérer l'UUID Keycloak généré
+            $locationHeader = $createUserResponse->header('Location');
+            $keycloakUuid = last(explode('/', $locationHeader));
+
+            // 4. Assigner le rôle dans Keycloak
+            $roleName = $request->role === 'secretaire' ? 'secretary' : 'admin';
+
+            // Récupérer le rôle
+            $roleResponse = Http::withToken($adminToken)->get($baseUrl . "/roles/{$roleName}");
+
+            if (!$roleResponse->successful()) {
+                // Si le rôle n'existe pas, le créer
+                Http::withToken($adminToken)->post($baseUrl . "/roles", [
+                    'name'        => $roleName,
+                    'description' => $roleName === 'admin' ? 'Administrateur' : 'Secrétaire',
+                ]);
+
+                // ✅ Récupérer le rôle nouvellement créé (car POST /roles ne renvoie pas d'objet)
+                $roleResponse = Http::withToken($adminToken)->get($baseUrl . "/roles/{$roleName}");
+            }
+
+            if ($roleResponse->successful()) {
+                $roleData = $roleResponse->json();
                 Http::withToken($adminToken)->post($baseUrl . "/users/{$keycloakUuid}/role-mappings/realm", [
                     [
                         'id'   => $roleData['id'],
@@ -392,35 +388,33 @@ public function storeStaffUser(Request $request): JsonResponse
                     ]
                 ]);
             }
+
+            // 5. Enregistrer en BDD MySQL locale
+            $user = User::create([
+                'keycloak_uuid'        => $keycloakUuid,
+                'nom'                  => $request->nom,
+                'prenom'               => $request->prenom,
+                'email'                => $request->email,
+                'telephone'            => $request->telephone,
+                'role'                 => $request->role,
+                'password'             => bcrypt($request->password),
+                'keycloak_synced'      => true,
+                'must_change_password' => true,
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'data'    => $user,
+                'message' => 'Utilisateur créé avec succès dans Keycloak et la base de données.'
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur: ' . $e->getMessage()
+            ], 500);
         }
-
-        // 5. Enregistrer en BDD MySQL locale avec le flag must_change_password
-        $user = User::create([
-            'keycloak_uuid' => $keycloakUuid,
-            'nom'           => $request->nom,
-            'prenom'        => $request->prenom,
-            'email'         => $request->email,
-            'telephone'     => $request->telephone,
-            'role'          => $request->role,
-            'password'      => bcrypt($request->password),
-            'keycloak_synced' => true,
-            'must_change_password' => true, // 🔥 L'utilisateur devra changer son mot de passe
-        ]);
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true, 
-            'data' => $user,
-            'message' => 'Utilisateur créé avec succès dans Keycloak et la base de données. Un changement de mot de passe est requis à la première connexion.'
-        ], 201);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        return response()->json([
-            'success' => false, 
-            'message' => 'Erreur: ' . $e->getMessage()
-        ], 500);
     }
-}
 }

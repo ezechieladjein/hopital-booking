@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { apiFetch } from './api'; // 🔥 AJOUT
+import { apiFetch } from './api';
+import keycloak from './keycloak-init';
 
 export default function PatientBooking({ onBookingSuccess }) {
   const [catalog, setCatalog] = useState([]);
@@ -17,7 +18,7 @@ export default function PatientBooking({ onBookingSuccess }) {
   const [loading, setLoading] = useState(true);
   const [bookingLoading, setBookingLoading] = useState(false);
 
-  // 🔥 Charger le catalogue avec apiFetch
+  // Charger le catalogue avec apiFetch
   useEffect(() => {
     apiFetch('/catalog')
       .then((resData) => {
@@ -75,17 +76,24 @@ export default function PatientBooking({ onBookingSuccess }) {
   }
   const availableDates = Object.keys(slotsByDate).sort();
 
-  // 🔥 handleConfirmBooking avec apiFetch
+  // handleConfirmBooking dynamique
   const handleConfirmBooking = async () => {
     if (!selectedSlot) return;
     setBookingLoading(true);
 
+    // Extraction des données réelles du jeton Keycloak connecté
+    const token = keycloak.tokenParsed || {};
+    const userUuid = keycloak.subject || token.sub;
+    const userEmail = token.email || "";
+    const userNom = token.family_name || token.nom || "";
+    const userPrenom = token.given_name || token.prenom || "";
+
     const formData = new FormData();
     formData.append("slot_id", selectedSlot.id);
-    formData.append("keycloak_uuid", "sub-test-keycloak-12345");
-    formData.append("nom", "Houessou");
-    formData.append("prenom", "Jean");
-    formData.append("email", "jean.houessou@example.com");
+    formData.append("keycloak_uuid", userUuid); //  Dynamique
+    formData.append("nom", userNom);           //  Dynamique
+    formData.append("prenom", userPrenom);     //  Dynamique
+    formData.append("email", userEmail);       //  Dynamique
     formData.append("has_insurance", hasInsurance);
 
     if (hasInsurance) {
@@ -110,7 +118,7 @@ export default function PatientBooking({ onBookingSuccess }) {
         setInsuranceName("");
         setInsurancePolicyNumber("");
         setInsuranceFile(null);
-        onBookingSuccess();
+        if (onBookingSuccess) onBookingSuccess();
       } else {
         alert(`Erreur : ${data.message}`);
       }

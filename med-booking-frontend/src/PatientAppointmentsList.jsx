@@ -17,11 +17,18 @@ import {
   XCircle,
   RotateCcw,
 } from "lucide-react";
-import { apiFetch } from './api'; // 🔥 AJOUT
+import { apiFetch } from './api';
 
 const ITEMS_PER_PAGE = 5;
 
-export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPPRESSION DE authToken
+// --- 1. CONSTANTE DES STATUTS AUTORISÉS (AJOUTÉE) ---
+const ALLOWED_STATUSES_FOR_EDIT = [
+  "CONFIRME",
+  "EN_ATTENTE_PAIEMENT",
+  "EN_ATTENTE_VALIDATION",
+];
+
+export default function PatientAppointmentsList({ keycloakUuid }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -86,7 +93,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
 
   const getApptId = (appt) => appt?.id ?? appt?.appointment_id;
 
-  // 🔥 Remplacer getHeaders par apiFetch
+  // Remplacer getHeaders par apiFetch
   const fetchAppointments = useCallback(async () => {
     setLoading(true);
     try {
@@ -159,7 +166,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
   const getEffectiveStatus = (appt) =>
     isAppointmentExpired(appt) ? "EXPIRE" : appt.status;
 
-  // 🔥 handlePayment avec apiFetch
+  // handlePayment avec apiFetch
   const handlePayment = async (apptId) => {
     if (!apptId || actionLoading) return;
 
@@ -191,7 +198,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
     }
   };
 
-  // 🔥 executeCancel avec apiFetch
+  // executeCancel avec apiFetch
   const executeCancel = async () => {
     const apptId = cancelModal.apptId;
     if (!apptId) return;
@@ -231,7 +238,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
     }
   };
 
-  // 🔥 fetchSlotsForDoctorAndDate avec apiFetch
+  // fetchSlotsForDoctorAndDate avec apiFetch
   const fetchSlotsForDoctorAndDate = async (doctorId, date) => {
     if (!doctorId || !date) return;
     try {
@@ -292,7 +299,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
     fetchSlotsForDoctorAndDate(editForm.doctorId, date);
   };
 
-  // 🔥 handleSaveEdit avec apiFetch
+  // handleSaveEdit avec apiFetch
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     const apptId = getApptId(selectedAppt);
@@ -686,6 +693,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                   </div>
                 )}
 
+                {/* --- 3. BLOC DE BOUTONS MIS À JOUR --- */}
                 <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t">
                   {isPendingPayment && (
                     <button
@@ -708,7 +716,8 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                     </button>
                   )}
 
-                  {!isExpired && !isCanceled && (
+                  {/* Affiche "Modifier" et "Annuler" UNIQUEMENT si le statut est autorisé */}
+                  {ALLOWED_STATUSES_FOR_EDIT.includes(effectiveStatus) && (
                     <>
                       <button
                         onClick={() => openEditModal(appt)}
@@ -824,7 +833,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
         </div>
       )}
 
-      {/* MODALE DE MODIFICATION */}
+      {/* --- 2. MODALE DE MODIFICATION (MISE À JOUR) --- */}
       {editModalOpen && selectedAppt && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -841,8 +850,19 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
               </button>
             </div>
 
+            {/* BANNIÈRE D'INFORMATION POUR RDV CONFIRMÉ */}
+            {selectedAppt.status === "CONFIRME" && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <span>
+                  Ce rendez-vous est déjà <strong>confirmé et payé</strong>. Vous pouvez uniquement reporter votre rendez-vous sur une autre date/créneau avec le <strong>même médecin</strong>.
+                </span>
+              </div>
+            )}
+
             <form onSubmit={handleSaveEdit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* SPÉCIALITÉ */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Spécialité
@@ -851,7 +871,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                     value={editForm.specialityId}
                     onChange={(e) => handleSpecialityChange(e.target.value)}
                     disabled={selectedAppt.status === "CONFIRME"}
-                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none"
+                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Spécialité --</option>
                     {catalog.map((spec) => (
@@ -862,6 +882,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                   </select>
                 </div>
 
+                {/* MÉDECIN */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Médecin
@@ -869,8 +890,8 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                   <select
                     value={editForm.doctorId}
                     onChange={(e) => handleDoctorChange(e.target.value)}
-                    disabled={!editForm.specialityId}
-                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none"
+                    disabled={selectedAppt.status === "CONFIRME" || !editForm.specialityId}
+                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Médecin --</option>
                     {availableDoctors.map((doc) => (
@@ -883,6 +904,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* DATE */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Date de consultation
@@ -893,10 +915,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                     value={editForm.date}
                     onChange={(e) => handleDateChange(e.target.value)}
                     disabled={!editForm.doctorId}
-                    className="w-full border p-2.5 rounded-xl text-xs outline-none focus:border-indigo-500"
+                    className="w-full border p-2.5 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
                 </div>
 
+                {/* CRÉNEAU HORAIRE */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Créneau horaire
@@ -910,31 +933,32 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                       }))
                     }
                     disabled={!editForm.date}
-                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none"
+                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Créneau --</option>
                     {availableSlots.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.start_time.substring(0, 5)} -{" "}
-                        {s.end_time.substring(0, 5)}
+                        {s.start_time.substring(0, 5)} - {s.end_time.substring(0, 5)}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
+              {/* ASSURANCE (Désactivée si CONFIRME) */}
               <div className="border-t pt-3 space-y-3">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-800">
                   <input
                     type="checkbox"
                     checked={editForm.hasInsurance}
+                    disabled={selectedAppt.status === "CONFIRME"}
                     onChange={(e) =>
                       setEditForm((prev) => ({
                         ...prev,
                         hasInsurance: e.target.checked,
                       }))
                     }
-                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed"
                   />
                   Bénéficier d'une prise en charge Assurance
                 </label>
@@ -949,13 +973,14 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                         type="text"
                         placeholder="ex: Gras Savoye, NSIA..."
                         value={editForm.insuranceName}
+                        disabled={selectedAppt.status === "CONFIRME"}
                         onChange={(e) =>
                           setEditForm((prev) => ({
                             ...prev,
                             insuranceName: e.target.value,
                           }))
                         }
-                        className="w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500"
+                        className="w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                         required={editForm.hasInsurance}
                       />
                     </div>
@@ -968,33 +993,36 @@ export default function PatientAppointmentsList({ keycloakUuid }) { // 🔥 SUPP
                         type="text"
                         placeholder="N° de carte ou police"
                         value={editForm.insurancePolicyNumber}
+                        disabled={selectedAppt.status === "CONFIRME"}
                         onChange={(e) =>
                           setEditForm((prev) => ({
                             ...prev,
                             insurancePolicyNumber: e.target.value,
                           }))
                         }
-                        className="w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500"
+                        className="w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                         required={editForm.hasInsurance}
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">
-                        Document justificatif (Optionnel si déjà fourni)
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*,application/pdf"
-                        onChange={(e) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            insuranceDocument: e.target.files[0],
-                          }))
-                        }
-                        className="w-full border p-2 rounded-xl text-xs bg-white"
-                      />
-                    </div>
+                    {selectedAppt.status !== "CONFIRME" && (
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                          Document justificatif (Optionnel si déjà fourni)
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={(e) =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              insuranceDocument: e.target.files[0],
+                            }))
+                          }
+                          className="w-full border p-2 rounded-xl text-xs bg-white"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

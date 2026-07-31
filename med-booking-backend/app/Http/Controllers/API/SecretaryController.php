@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\API;
-
+use Carbon\Carbon;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Doctor;
@@ -75,7 +75,6 @@ class SecretaryController extends Controller
             if ($newStatus === 'CONFIRME' && $appointment->slot) {
                 $appointment->slot->update([
                     'status' => 'Occupé',
-                    'is_available' => false,
                     'reserved_until' => null,
                 ]);
             }
@@ -120,7 +119,7 @@ class SecretaryController extends Controller
                 'cancellation_reason'     => 'Assurance refusée : ' . $request->input('reason'),
             ]);
 
-            // 📩 ENVOI EMAIL : Assurance refusée
+            // ENVOI EMAIL : Assurance refusée
             Mail::to($appointment->patient->email)->queue(new AppointmentRefusedMail($appointment));
 
             return response()->json([
@@ -162,7 +161,7 @@ class SecretaryController extends Controller
     public function getDoctors(): JsonResponse
     {
         try {
-            $doctors = Doctor::with(['user', 'speciality'])->get();
+            $doctors = Doctor::with(['speciality'])->get();
             return response()->json(['success' => true, 'data' => $doctors], 200);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
@@ -193,8 +192,8 @@ class SecretaryController extends Controller
         $request->validate([
             'doctor_id'  => 'required|exists:doctors,id',
             'date'       => 'required|date',
-            'type'       => 'nullable|string',
-            'reason'     => 'nullable|string',
+            'type'       => 'nullable|string|in:CONGE,MALADIE,URGENCE,FORMATION,AUTRE',
+            'reason'     => 'nullable|string|max:255',
             'slot_ids'   => 'nullable|array',
             'slot_ids.*' => 'exists:slots,id'
         ]);
@@ -202,107 +201,149 @@ class SecretaryController extends Controller
         try {
             return DB::transaction(function () use ($request) {
                 $isFullDay = empty($request->input('slot_ids'));
-                $doctorId = $request->input('doctor_id');
-                $date = $request->input('date');
+                $doctorId  = $request->input('doctor_id');
+                $date      = $request->input('date');
 
                 if ($isFullDay) {
                     $startDatetime = "{$date} 00:00:00";
-                    $endDatetime = "{$date} 23:59:59";
+                    $endDatetime   = "{$date} 23:59:59";
+
                     $slotsToBlock = Slot::where('doctor_id', $doctorId)
                         ->where('date_consultation', $date)
                         ->get();
                 } else {
                     $slotsToBlock = Slot::whereIn('id', $request->input('slot_ids'))->get();
-                    $startDatetime = "{$date} " . $slotsToBlock->min('start_time');
-                    $endDatetime = "{$date} " . $slotsToBlock->max('end_time');
+
+                    if ($slotsToBlock->isEmpty()) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Aucun créneau valide sélectionné.'
+                        ], 400);
+                    }
+
+                    $minTime = $slotsToBlock->min('start_time');
+                    $maxTime = $slotsToBlock->max('end_time');
+
+                    $startDatetime = "{$date} {$minTime}";
+                    // Carbon gère proprement le format et l'ajout de la seconde
+                    $endDatetime   = Carbon::parse("{$date} {$maxTime}")->addSecond()->toDateTimeString();
                 }
 
-                if ($slotsToBlock->isEmpty()) {
-                    return response()->json(['success' => false, 'message' => 'Aucun créneau trouvé pour cette opération.'], 400);
-                }
+                // Gestion propre de l'auteur de l'action
+                $createdBy = auth()->id() ?? \App\Models\User::first()?->id ?? 1;
 
-                DoctorUnavailability::create([
+                // 1. Création du registre d'indisponibilité
+                $unavailability = DoctorUnavailability::create([
                     'doctor_id'      => $doctorId,
                     'start_datetime' => $startDatetime,
                     'end_datetime'   => $endDatetime,
                     'is_full_day'    => $isFullDay,
                     'type'           => $request->input('type', 'URGENCE'),
-                    'reason'         => $request->input('reason', 'Indisponibilité / Urgence'),
+                    'reason'         => $request->input('reason', 'Indisponibilité déclarée'),
                     'status'         => 'ACTIF',
-                    'created_by'     => auth()->id() ?? 1,
+                    'created_by'     => $createdBy,
                 ]);
 
-                $slotIds = $slotsToBlock->pluck('id');
+                if ($slotsToBlock->isNotEmpty()) {
+                    $slotIds = $slotsToBlock->pluck('id');
 
-                Slot::whereIn('id', $slotIds)->update([
-                    'status' => 'Indisponible',
-                    'is_available' => false,
-                ]);
-
-                // 📩 1. RÉCUPÉRATION DES RDV ET PATIENTS IMPACTÉS (Avec relations complètes)
-                $impactedAppointments = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
-                    ->whereIn('slot_id', $slotIds)
-                    ->whereNotIn('status', ['ANNULE_PATIENT', 'ANNULE_HOPITAL', 'TERMINE'])
-                    ->get();
-
-                // 2. Mise à jour du statut des rendez-vous en base de données
-                Appointment::whereIn('id', $impactedAppointments->pluck('id'))
-                    ->update([
-                        'status' => 'ANNULE_HOPITAL',
-                        'cancellation_reason' => 'Absence / Urgence médicale'
+                    // 2. Marquer les créneaux comme indisponibles
+                    Slot::whereIn('id', $slotIds)->update([
+                        'status'       => 'Indisponible',
                     ]);
 
-                // 📩 3. ENVOI DES E-MAILS AUX PATIENTS
-                foreach ($impactedAppointments as $appointment) {
-                    if ($appointment->patient && $appointment->patient->email) {
-                        Mail::to($appointment->patient->email)
-                            ->queue(new AppointmentCancelledMail($appointment));
+                    // 3. Traitement des rendez-vous déjà réservés sur ces créneaux
+                    $impactedAppointments = Appointment::with(['patient', 'slot.doctor'])
+                        ->whereIn('slot_id', $slotIds)
+                        ->whereNotIn('status', ['ANNULE_PATIENT', 'ANNULE_HOPITAL', 'TERMINE'])
+                        ->get();
+
+                    if ($impactedAppointments->isNotEmpty()) {
+                        Appointment::whereIn('id', $impactedAppointments->pluck('id'))
+                            ->update([
+                                'status'              => 'ANNULE_HOPITAL',
+                                'cancellation_reason' => $request->input('reason', 'Absence / Urgence médicale')
+                            ]);
+
+                        // Notification e-mail après commit de la transaction
+                        DB::afterCommit(function () use ($impactedAppointments) {
+                            foreach ($impactedAppointments as $appointment) {
+                                if ($appointment->patient?->email) {
+                                    Mail::to($appointment->patient->email)
+                                        ->queue(new AppointmentCancelledMail($appointment));
+                                }
+                            }
+                        });
                     }
                 }
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Indisponibilité enregistrée et créneaux bloqués avec succès.'
+                    'message' => 'Blocage effectué avec succès.',
+                    'data'    => $unavailability
                 ], 200);
             });
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors du blocage : ' . $e->getMessage()
+            ], 500);
         }
     }
 
     /**
      * 8. Débloquer une indisponibilité (Levée).
      */
-    public function unblockAvailability(int $id): JsonResponse
+    public function unblockAvailability(int $unavailabilityId): JsonResponse
     {
         try {
-            return DB::transaction(function () use ($id) {
-                $unavailability = DoctorUnavailability::findOrFail($id);
+            return DB::transaction(function () use ($unavailabilityId) {
+                $unavailability = DoctorUnavailability::findOrFail($unavailabilityId);
 
+                if ($unavailability->status !== 'ACTIF') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cette indisponibilité est déjà annulée ou inactive.'
+                    ], 400);
+                }
+
+                // 1. Marquer l'indisponibilité comme annulée
                 $unavailability->update([
                     'status'       => 'ANNULE',
-                    'cancelled_by' => auth()->id() ?? 1,
+                    'cancelled_by' => auth()->id() ?? \App\Models\User::first()?->id ?? 1,
                     'cancelled_at' => now(),
                 ]);
 
-                $startDate = substr($unavailability->start_datetime, 0, 10);
-                $endDate = substr($unavailability->end_datetime, 0, 10);
+                // 2. Extraire la plage exacte à débloquer
+                $startDate = Carbon::parse($unavailability->start_datetime)->toDateString();
+                $endDate   = Carbon::parse($unavailability->end_datetime)->toDateString();
+                $startTime = Carbon::parse($unavailability->start_datetime)->toTimeString();
+                $endTime   = Carbon::parse($unavailability->end_datetime)->toTimeString();
 
-                Slot::where('doctor_id', $unavailability->doctor_id)
+                // 3. Débloquer UNIQUEMENT les créneaux de cet intervalle
+                $query = Slot::where('doctor_id', $unavailability->doctor_id)
                     ->whereBetween('date_consultation', [$startDate, $endDate])
-                    ->where('status', 'Indisponible')
-                    ->update([
-                        'status' => 'Disponible',
-                        'is_available' => true,
-                    ]);
+                    ->where('status', 'Indisponible');
+
+                if (!$unavailability->is_full_day) {
+                    $query->where('start_time', '>=', $startTime)
+                        ->where('end_time', '<=', $endTime);
+                }
+
+                $query->update([
+                    'status'       => 'Disponible',
+                ]);
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Indisponibilité levée et créneaux débloqués.'
+                    'message' => 'Créneaux débloqués et de nouveau disponibles.'
                 ], 200);
             });
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors du déblocage : ' . $e->getMessage()
+            ], 500);
         }
     }
 

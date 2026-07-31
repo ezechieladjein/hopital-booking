@@ -17,33 +17,46 @@ class KeycloakJwtAuth
             return response()->json(['message' => 'Token d\'authentification manquant.'], 401);
         }
 
-        // Décodage du jeton JWT (Header.Payload.Signature)
+        // 1. Découpage du jeton JWT
         $tokenParts = explode('.', $token);
         if (count($tokenParts) !== 3) {
             return response()->json(['message' => 'Token invalide.'], 401);
         }
 
-        $payload = json_decode(base64_decode($tokenParts[1]), true);
+        // 2. Décodage sécurisé de la partie Payload (Format Base64URL)
+        $base64UrlPayload = $tokenParts[1];
+        $base64Payload    = str_replace(['-', '_'], ['+', '/'], $base64UrlPayload);
+        $payload          = json_decode(base64_decode($base64Payload), true);
 
-        // Vérification de l'expiration du token
+        if (!$payload) {
+            return response()->json(['message' => 'Impossible de décoder le payload JWT.'], 401);
+        }
+
+        // 3. Vérification de l'expiration du token
         if (isset($payload['exp']) && $payload['exp'] < time()) {
             return response()->json(['message' => 'Token expiré.'], 401);
         }
 
-        // 🔥 SYNC AUTOMATIQUE : Créer ou mettre à jour l'utilisateur en base
+        // 4. Synchronisation automatique avec la BDD
         $user = User::syncFromKeycloak($payload);
-        
+
         if (!$user) {
             return response()->json(['message' => 'Impossible de synchroniser l\'utilisateur.'], 401);
         }
 
-        // Vérification des rôles si spécifiés dans le middleware
+        // 5. Vérification des rôles requis par la route
         if (!empty($roles)) {
-            $userRoles = $payload['realm_access']['roles'] ?? [];
-            $hasRole = false;
+            $realmRoles  = $payload['realm_access']['roles'] ?? [];
+            $clientRoles = array_merge(...array_column($payload['resource_access'] ?? [], 'roles'));
+            $userRoles   = array_map('strtolower', array_merge($realmRoles, $clientRoles));
 
+            $hasRole = false;
             foreach ($roles as $role) {
-                if (in_array($role, $userRoles)) {
+                $targetRole = strtolower($role);
+                // Prise en charge des équivalences FR/EN pour la protection de la route
+                if (in_array($targetRole, $userRoles) || 
+                   ($targetRole === 'admin' && in_array('administrateur', $userRoles)) ||
+                   ($targetRole === 'secretary' && in_array('secretaire', $userRoles))) {
                     $hasRole = true;
                     break;
                 }
@@ -54,7 +67,11 @@ class KeycloakJwtAuth
             }
         }
 
-        // Attacher les données de l'utilisateur à la requête
+        // 6. Attacher l'utilisateur à l'authentification native Laravel ($request->user())
+        $request->setUserResolver(function () use ($user) {
+            return $user;
+        });
+
         $request->attributes->set('keycloak_user', $payload);
         $request->attributes->set('user', $user);
 

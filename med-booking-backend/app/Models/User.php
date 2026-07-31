@@ -49,17 +49,17 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'keycloak_synced' => 'boolean',
+            'email_verified_at'    => 'datetime',
+            'password'             => 'hashed',
+            'keycloak_synced'      => 'boolean',
             'must_change_password' => 'boolean',
         ];
     }
 
     /**
-     * Créer ou mettre à jour un utilisateur depuis Keycloak
+     * Créer ou mettre à jour un utilisateur depuis Keycloak avec mapping de rôles robuste
      */
-    public static function syncFromKeycloak($keycloakPayload)
+    public static function syncFromKeycloak(array $keycloakPayload): ?self
     {
         $keycloakId = $keycloakPayload['sub'] ?? null;
         
@@ -67,41 +67,57 @@ class User extends Authenticatable
             return null;
         }
 
-        // Récupérer les informations du payload
-        $email = $keycloakPayload['email'] ?? null;
-        $nom = $keycloakPayload['family_name'] ?? $keycloakPayload['name'] ?? 'Nom';
+        // Extraction des informations basiques
+        $email  = $keycloakPayload['email'] ?? null;
+        $nom    = $keycloakPayload['family_name'] ?? $keycloakPayload['name'] ?? 'Nom';
         $prenom = $keycloakPayload['given_name'] ?? 'Prénom';
-        
-        // Déterminer le rôle
-        $roles = $keycloakPayload['realm_access']['roles'] ?? ['patient'];
+
+        // 1. Extraire tous les rôles (Realm + Client) et tout normaliser en minuscules
+        $realmRoles  = $keycloakPayload['realm_access']['roles'] ?? [];
+        $clientRoles = array_merge(...array_column($keycloakPayload['resource_access'] ?? [], 'roles'));
+        $allRoles    = array_map('strtolower', array_merge($realmRoles, $clientRoles));
+
+        // 2. Mapping Keycloak ('admin', 'secretary', 'patient') -> ENUM MySQL ('administrateur', 'secretaire', 'patient')
         $role = 'patient';
-        if (in_array('admin', $roles)) $role = 'administrateur';
-        elseif (in_array('secretary', $roles) || in_array('secretaire', $roles)) $role = 'secretaire';
 
-        // Chercher l'utilisateur
-        $user = self::where('keycloak_uuid', $keycloakId)->first();
+        if (in_array('admin', $allRoles) || in_array('administrateur', $allRoles)) {
+            $role = 'administrateur';
+        } elseif (in_array('secretary', $allRoles) || in_array('secretaire', $allRoles)) {
+            $role = 'secretaire';
+        }
 
+        // 3. Recherche de l'utilisateur par UUID Keycloak ou par Email
+        $user = self::where('keycloak_uuid', $keycloakId)
+            ->orWhere(function ($query) use ($email) {
+                if ($email) {
+                    $query->where('email', $email);
+                }
+            })
+            ->first();
+
+        // 4. Mise à jour de l'utilisateur existant
         if ($user) {
-            // Mettre à jour
             $user->update([
-                'email' => $email ?? $user->email,
-                'nom' => $nom,
-                'prenom' => $prenom,
-                'role' => $role,
+                'keycloak_uuid'   => $keycloakId,
+                'email'           => $email ?? $user->email,
+                'nom'             => $nom,
+                'prenom'          => $prenom,
+                'role'            => $role,
                 'keycloak_synced' => true,
             ]);
+
             return $user;
         }
 
-        // Créer un nouvel utilisateur
+        // 5. Création s'il n'existe pas
         return self::create([
-            'keycloak_uuid' => $keycloakId,
-            'email' => $email ?? 'no-email@example.com',
-            'nom' => $nom,
-            'prenom' => $prenom,
-            'role' => $role,
-            'password' => Hash::make('temporary-' . uniqid()),
-            'keycloak_synced' => true,
+            'keycloak_uuid'        => $keycloakId,
+            'email'                => $email ?? 'no-email@example.com',
+            'nom'                  => $nom,
+            'prenom'               => $prenom,
+            'role'                 => $role,
+            'password'             => Hash::make('temporary-' . uniqid()),
+            'keycloak_synced'      => true,
             'must_change_password' => false,
         ]);
     }

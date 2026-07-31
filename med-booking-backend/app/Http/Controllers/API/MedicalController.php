@@ -12,6 +12,7 @@ use App\Models\Payment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\AppointmentCreatedMail;
 use App\Mail\AppointmentUpdatedMail;
@@ -85,51 +86,91 @@ class MedicalController extends Controller
     /**
      * Enregistre un nouveau rendez-vous.
      */
+    /**
+     * Enregistre un nouveau rendez-vous.
+     */
     public function bookAppointment(Request $request): JsonResponse
     {
-        $slotId = $request->input('slot_id');
-        $keycloakUuid = $request->input('keycloak_uuid');
+        // Log pour le suivi du payload reçu
+        Log::info('Payload reçu :', $request->all());
+
+        $slotId = $request->input('slot_id') ?? $request->get('slot_id');
+        $keycloakUuid = $request->input('keycloak_uuid') ?? $request->get('keycloak_uuid');
         $email = $request->input('email');
-        $nom = $request->input('nom');
-        $prenom = $request->input('prenom');
-
-        $hasInsurance = filter_var($request->input('has_insurance'), FILTER_VALIDATE_BOOLEAN);
-        $insuranceName = $request->input('insurance_name');
-        $insurancePolicyNumber = $request->input('insurance_policy_number');
-
-        $documentPath = null;
-        if ($hasInsurance && $request->hasFile('insurance_document')) {
-            $path = $request->file('insurance_document')->store('insurances', 'public');
-            $documentPath = asset('storage/' . $path);
-        }
 
         if (!$slotId || !$keycloakUuid) {
-            return response()->json(['success' => false, 'message' => 'Identifiants invalides.'], 400);
+            return response()->json([
+                'success' => false,
+                'message' => 'Identifiants invalides.',
+                'received' => [
+                    'slot_id' => $slotId,
+                    'keycloak_uuid' => $keycloakUuid,
+                    'all_inputs' => $request->all()
+                ]
+            ], 400);
         }
+
+        // Conversion explicite en booléen
+        $hasInsurance = filter_var($request->input('has_insurance'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false;
 
         DB::beginTransaction();
 
         try {
-            $user = User::firstOrCreate(
-                ['keycloak_uuid' => $keycloakUuid],
-                [
-                    'nom' => $nom ?? 'Nom',
-                    'prenom' => $prenom ?? 'Prénom',
-                    'email' => $email ?? 'sans-email@example.com',
-                    'role' => 'patient',
-                ]
-            );
+            // 1. Recherche stricte : par keycloak_uuid d'abord, ou par email si l'UUID n'existe pas encore
+            $user = User::where('keycloak_uuid', $keycloakUuid)->first();
 
+            if (!$user && $email) {
+                $user = User::where('email', $email)->first();
+            }
+
+            if ($user) {
+                // Mise à jour de l'utilisateur existant avec les informations reçues
+                $user->update([
+                    'keycloak_uuid' => $keycloakUuid,
+                    'nom' => $request->input('nom') ?: $user->nom,
+                    'prenom' => $request->input('prenom') ?: $user->prenom,
+                    'email' => $email ?: $user->email,
+                ]);
+            } else {
+                // Création si l'utilisateur n'existe ni par UUID ni par Email
+                $user = User::create([
+                    'keycloak_uuid' => $keycloakUuid,
+                    'nom' => $request->input('nom') ?: 'Nom',
+                    'prenom' => $request->input('prenom') ?: 'Prénom',
+                    'email' => $email ?: 'patient-' . uniqid() . '@example.com',
+                    'role' => 'patient',
+                ]);
+            }
+
+            // 2. Vérification et verrouillage du créneau
             $slot = Slot::lockForUpdate()->with('doctor.speciality')->find($slotId);
 
-            if (!$slot || $slot->status !== 'Disponible') {
+            if (!$slot) {
                 DB::rollBack();
-                return response()->json(['success' => false, 'message' => 'Ce créneau n\'est plus disponible.'], 422);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Créneau introuvable ID: ' . $slotId
+                ], 404);
+            }
+
+            if ($slot->status !== 'Disponible') {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Créneau non disponible. Statut actuel: ' . $slot->status
+                ], 422);
             }
 
             $basePrice = $slot->doctor->speciality->tarif ?? 25000;
 
-            // Verrouillage du créneau avec les colonnes étendues
+            // 3. GESTION DU FICHIER D'ASSURANCE (CORRECTION ICI)
+            $documentPath = null;
+            if ($hasInsurance && $request->hasFile('insurance_document')) {
+                $path = $request->file('insurance_document')->store('insurances', 'public');
+                $documentPath = asset('storage/' . $path);
+            }
+
+            // 4. Mise à jour du statut du créneau
             $slot->update([
                 'status' => 'Réservé temporairement',
                 'is_available' => false,
@@ -138,23 +179,21 @@ class MedicalController extends Controller
 
             $initialStatus = $hasInsurance ? 'EN_ATTENTE_VALIDATION' : 'EN_ATTENTE_PAIEMENT';
 
+            // 5. Création de la réservation rattachée au bon patient_id
             $appointment = Appointment::create([
                 'patient_id' => $user->id,
                 'slot_id' => $slot->id,
                 'status' => $initialStatus,
-                'has_insurance' => $hasInsurance,
-                'insurance_name' => $hasInsurance ? $insuranceName : null,
-                'insurance_policy_number' => $hasInsurance ? $insurancePolicyNumber : null,
-                'insurance_document_path' => $documentPath,
+                'has_insurance' => $hasInsurance ? 1 : 0,
+                'insurance_name' => $hasInsurance ? $request->input('insurance_name') : null,
+                'insurance_policy_number' => $hasInsurance ? $request->input('insurance_policy_number') : null,
+                'insurance_document_path' => $documentPath, // <-- Le chemin est SAUVEGARDÉ
                 'insurance_coverage_rate' => 0,
                 'base_price' => $basePrice,
                 'amount_to_pay' => $basePrice,
             ]);
 
             DB::commit();
-            $appointment->load(['patient', 'slot.doctor', 'slot.doctor.speciality']);
-            // 📩 ENVOI EMAIL : Confirmation de réservation
-            Mail::to($user->email)->queue(new AppointmentCreatedMail($appointment));
 
             return response()->json([
                 'appointment_id' => $appointment->id,
@@ -165,9 +204,14 @@ class MedicalController extends Controller
                     'heure' => substr($slot->start_time, 0, 5),
                 ]
             ], 201);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'error_details' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
+            ], 500);
         }
     }
 
@@ -210,6 +254,9 @@ class MedicalController extends Controller
     /**
      * Modification / Report complet d'un rendez-vous.
      */
+    /**
+     * Modification / Report complet d'un rendez-vous.
+     */
     public function rescheduleAppointment(Request $request, int $id): JsonResponse
     {
         $newSlotId = $request->input('slot_id');
@@ -229,6 +276,16 @@ class MedicalController extends Controller
             if (!$appointment) {
                 DB::rollBack();
                 return response()->json(['success' => false, 'message' => 'Rendez-vous introuvable.'], 404);
+            }
+
+            // INTERDICTION : Si le rendez-vous est TERMINE, ABSENT, ANNULE_PATIENT, ANNULE_HOPITAL ou EXPIRE
+            $forbiddenStatuses = ['TERMINE', 'ABSENT', 'ANNULE_PATIENT', 'ANNULE_HOPITAL', 'EXPIRE'];
+            if (in_array($appointment->status, $forbiddenStatuses)) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce rendez-vous ne peut plus être modifié (statut : ' . $appointment->status . ').'
+                ], 422);
             }
 
             // CAS 1 : SI CONFIRMÉ (PAYÉ) -> Interdiction de changer de spécialité
@@ -264,7 +321,7 @@ class MedicalController extends Controller
 
                 DB::commit();
 
-                // 📩 ENVOI EMAIL : Modification du rendez-vous
+                // ENVOI EMAIL : Modification du rendez-vous
                 Mail::to($appointment->patient->email)->queue(new AppointmentUpdatedMail($appointment));
 
                 return response()->json(['success' => true, 'message' => 'Créneau modifié avec succès.'], 200);
@@ -311,14 +368,14 @@ class MedicalController extends Controller
                     'has_insurance' => $hasInsurance,
                     'insurance_name' => $hasInsurance ? $insuranceName : null,
                     'insurance_policy_number' => $hasInsurance ? $insurancePolicyNumber : null,
-                    'insurance_document_path' => $documentPath,
+                    'insurance_document_path' => $documentPath, 
                     'base_price' => $newBasePrice,
                     'amount_to_pay' => (int) $newAmountToPay,
                 ]);
 
                 DB::commit();
 
-                // 📩 ENVOI EMAIL : Modification du rendez-vous
+                // ENVOI EMAIL : Modification du rendez-vous
                 Mail::to($appointment->patient->email)->queue(new AppointmentUpdatedMail($appointment));
 
                 return response()->json([
@@ -353,12 +410,17 @@ class MedicalController extends Controller
                 return response()->json(['success' => false, 'message' => 'Rendez-vous introuvable.'], 404);
             }
 
-            if (in_array($appointment->status, ['ANNULE_PATIENT', 'ANNULE_HOPITAL', 'EXPIRE'])) {
+            // INTERDICTION : Statuts qui ne peuvent plus être annulés par le patient
+            $nonCancellableStatuses = ['TERMINE', 'ABSENT', 'ANNULE_PATIENT', 'ANNULE_HOPITAL', 'EXPIRE'];
+            if (in_array($appointment->status, $nonCancellableStatuses)) {
                 DB::rollBack();
-                return response()->json(['success' => false, 'message' => 'Rendez-vous déjà annulé ou expiré.'], 400);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce rendez-vous ne peut pas être annulé (statut : ' . $appointment->status . ').'
+                ], 422);
             }
 
-            // Libération conditionnelle du créneau selon la date/heure
+            // Libération du créneau
             if ($appointment->slot) {
                 $this->releaseSlot($appointment->slot);
             }
@@ -372,7 +434,7 @@ class MedicalController extends Controller
 
                 DB::commit();
 
-                // 📩 ENVOI EMAIL : Annulation par le patient
+                // ENVOI EMAIL : Annulation par le patient
                 Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
 
                 return response()->json(['success' => true, 'message' => 'Rendez-vous annulé avec succès.'], 200);
@@ -390,7 +452,7 @@ class MedicalController extends Controller
 
                     DB::commit();
 
-                    // 📩 ENVOI EMAIL : Annulation par le patient
+                    // ENVOI EMAIL : Annulation par le patient
                     Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
 
                     return response()->json([
@@ -422,7 +484,7 @@ class MedicalController extends Controller
 
                 DB::commit();
 
-                // 📩 ENVOI EMAIL : Annulation par le patient
+                // ENVOI EMAIL : Annulation par le patient
                 Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
 
                 return response()->json([
