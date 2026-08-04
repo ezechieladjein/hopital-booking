@@ -6,6 +6,7 @@ use App\Http\Controllers\API\MedicalController;
 use App\Http\Controllers\API\SecretaryController;
 use App\Http\Controllers\API\PaymentController;
 use App\Http\Controllers\API\AdminController;
+use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\PasswordController;
 use App\Http\Middleware\KeycloakJwtAuth;
 
@@ -127,7 +128,7 @@ Route::get('/test-keycloak', function () {
     try {
         $baseUrl = config('keycloak.base_url');
         $realm = 'master';
-        
+
         $response = Http::asForm()->post($baseUrl . '/realms/' . $realm . '/protocol/openid-connect/token', [
             'client_id' => 'admin-cli',
             'username' => 'admin',
@@ -145,3 +146,6 @@ Route::get('/test-keycloak', function () {
         ], 500);
     }
 });
+
+Route::get('/notifications', [NotificationController::class, 'index']);
+Route::post('/notifications/mark-as-read', [NotificationController::class, 'markAllAsRead']);

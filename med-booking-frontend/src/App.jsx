@@ -1,6 +1,7 @@
-// src/App.jsx
 import React, { useState, useEffect } from 'react';
+import { RefreshCw } from 'lucide-react';
 import keycloak, { initKeycloak, login, logout } from './keycloak-init';
+import Navbar from './components/Navbar';
 import HomePage from './HomePage';
 import PatientBooking from './PatientBooking';
 import SecretaryDashboard from './SecretaryDashboard';
@@ -48,6 +49,7 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reloadTrigger, setReloadTrigger] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [primaryRole, setPrimaryRole] = useState(null);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function App() {
           determinePrimaryRole(roles);
         }
       } catch (err) {
-        console.error("❌ Erreur authentification:", err);
+        console.error("Erreur authentification:", err);
         setAuthenticated(false);
       } finally {
         setLoading(false);
@@ -87,14 +89,27 @@ export default function App() {
   };
 
   const determinePrimaryRole = (roles) => {
-    const hasAdmin = roles.some(r => r.toLowerCase() === 'admin');
-    const hasSecretary = roles.some(r => r.toLowerCase() === 'secretary');
-    const hasPatient = roles.some(r => r.toLowerCase() === 'patient');
+    const lowerRoles = roles.map(r => r.toLowerCase());
+
+    const hasAdmin = lowerRoles.includes('admin');
+    const hasSecretary = lowerRoles.includes('secretary') || lowerRoles.includes('secretaire');
+    const hasPatient = lowerRoles.includes('patient');
 
     if (hasAdmin) setPrimaryRole('admin');
     else if (hasSecretary) setPrimaryRole('secretary');
     else if (hasPatient) setPrimaryRole('patient');
     else setPrimaryRole(null);
+  };
+
+  // Mécanisme global de rafraîchissement des données sans recharger la page
+  const handleGlobalRefresh = () => {
+    setIsRefreshing(true);
+    setReloadTrigger(prev => prev + 1);
+
+    // Petit effet visuel de rotation de l'icône pendant 500ms
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 500);
   };
 
   if (window.location.pathname.startsWith('/payment-callback')) {
@@ -123,7 +138,7 @@ export default function App() {
           <div className="text-6xl mb-4">⚠️</div>
           <h2 className="text-xl font-bold text-yellow-600 mb-2">Aucun rôle valide</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Votre compte ne possède aucun rôle valide (patient, secretary, admin).
+            Votre compte ne possède aucun rôle valide (Patient, Secrétaire, Administrateur).
           </p>
           <button
             onClick={() => logout()}
@@ -137,10 +152,6 @@ export default function App() {
   }
 
   const userUuid = keycloak.tokenParsed?.sub;
-
-  const handleBookingSuccess = () => {
-    setReloadTrigger(prev => prev + 1);
-  };
 
   const renderContent = () => {
     switch (primaryRole) {
@@ -158,7 +169,7 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-[#0D1B3D]">Prendre rendez-vous</h1>
                 <p className="text-gray-500 mt-1 text-sm">Vos soins, partout, à portée de main</p>
               </div>
-              <PatientBooking onBookingSuccess={handleBookingSuccess} />
+              <PatientBooking onBookingSuccess={handleGlobalRefresh} />
               <PatientProfile keycloakUuid={userUuid} />
             </div>
             <div className="lg:col-span-2 space-y-6">
@@ -178,35 +189,13 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-[#F5F7FA] font-['Poppins']">
-        <nav className="bg-white border-b border-gray-100 px-6 py-4 flex justify-between items-center shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#0D1B3D] rounded-xl flex items-center justify-center text-white font-black text-xl">
-              M
-            </div>
-            <span className="text-2xl font-black text-[#0D1B3D] tracking-tight">
-              Medi<span className="text-[#2EAF5E]">go</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs text-gray-400 font-medium">Connecté en tant que</p>
-              <p className="text-sm font-bold text-[#0D1B3D]">
-                {keycloak.tokenParsed?.given_name || keycloak.tokenParsed?.preferred_username || 'Utilisateur'}
-                <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 uppercase">
-                  {primaryRole === 'admin' ? 'Admin' : primaryRole === 'secretary' ? 'Secrétaire' : 'Patient'}
-                </span>
-              </p>
-            </div>
-
-            <button
-              onClick={() => logout()}
-              className="bg-red-50 text-red-600 hover:bg-red-100 px-3.5 py-2 rounded-lg text-xs font-semibold transition border border-red-100 cursor-pointer"
-            >
-              Déconnexion
-            </button>
-          </div>
-        </nav>
+        <Navbar
+          keycloak={keycloak}
+          primaryRole={primaryRole}
+          onRefresh={handleGlobalRefresh}
+          isRefreshing={isRefreshing}
+          onLogout={() => logout()}
+        />
 
         <main className="p-6 max-w-7xl mx-auto">
           {renderContent()}

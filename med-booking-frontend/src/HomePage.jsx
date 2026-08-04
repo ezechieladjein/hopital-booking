@@ -66,7 +66,7 @@ export default function HomePage() {
           </div>
           
           <h1 className="text-4xl md:text-6xl font-bold text-white leading-tight mb-4">
-            Medigo
+            MediGo
             <span className="block text-[#2EAF5E]">Prenez rendez-vous avec votre médecin en ligne</span>
           </h1>
           
@@ -130,7 +130,7 @@ export default function HomePage() {
       <section className="py-16 px-4 bg-[#F5F7FA]">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-3xl font-bold text-center text-[#0D1B3D] mb-12">
-            Pourquoi choisir Medigo ?
+            Pourquoi choisir MediGo ?
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -174,7 +174,7 @@ export default function HomePage() {
             Prêt à prendre rendez-vous ?
           </h2>
           <p className="text-white/70 mb-8">
-            Rejoignez des milliers de patients qui utilisent Medigo pour gérer leurs consultations médicales.
+            Rejoignez des milliers de patients qui utilisent MediGo pour gérer leurs consultations médicales.
           </p>
           <button
             type="button"
@@ -194,7 +194,7 @@ export default function HomePage() {
               <div className="w-8 h-8 bg-[#2EAF5E] rounded-lg flex items-center justify-center text-white font-bold text-sm">
                 M
               </div>
-              <span className="text-white font-bold">Medigo</span>
+              <span className="text-white font-bold">MediGo</span>
             </div>
             <p className="text-sm">
               La plateforme de prise de rendez-vous médicaux moderne et sécurisée.
@@ -229,7 +229,7 @@ export default function HomePage() {
         </div>
         
         <div className="max-w-7xl mx-auto mt-8 pt-8 border-t border-white/5 text-center text-sm">
-          © 2026 Medigo - Tous droits réservés.
+          © 2026 MediGo - Tous droits réservés.
         </div>
       </footer>
     </div>
