@@ -250,10 +250,7 @@ class MedicalController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
-    /**
-     * Modification / Report complet d'un rendez-vous.
-     */
+    
     /**
      * Modification / Report complet d'un rendez-vous.
      */

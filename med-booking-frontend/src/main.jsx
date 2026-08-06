@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
+import HomePage from './HomePage.jsx';
 import './index.css';
 
 // Intercepteur pour Ngrok
@@ -23,6 +24,11 @@ window.fetch = async function (...args) {
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
         <BrowserRouter>
+           {/*  <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/app" element={<App />} />
+                <Route path="/payment-callback" element={<PaymentCallback />} />
+            </Routes> */}
             <App />
         </BrowserRouter>
     </React.StrictMode>

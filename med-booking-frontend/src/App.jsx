@@ -128,7 +128,7 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return <HomePage />;
+    return <LoginRedirect />;
   }
 
   if (!primaryRole) {
@@ -152,6 +152,20 @@ export default function App() {
   }
 
   const userUuid = keycloak.tokenParsed?.sub;
+
+  const LoginRedirect = () => {
+    useEffect(() => {
+      login();
+    }, []);
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F7FA]">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-[#0D1B3D] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium font-['Poppins']">Redirection vers l'authentification...</p>
+        </div>
+      </div>
+    );
+  };
 
   const renderContent = () => {
     switch (primaryRole) {

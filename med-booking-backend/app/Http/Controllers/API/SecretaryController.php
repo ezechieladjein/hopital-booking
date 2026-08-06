@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\API;
+
 use Carbon\Carbon;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
@@ -142,12 +143,38 @@ class SecretaryController extends Controller
         ]);
 
         try {
-            $appointment = Appointment::findOrFail($id);
-            $appointment->update(['status' => $request->input('status')]);
+            // Chargement de l'appointment avec son slot
+            $appointment = Appointment::with('slot')->findOrFail($id);
+            $newStatus = $request->input('status');
+
+            // Vérification temporelle pour les statuts TERMINE et ABSENT
+            if (in_array($newStatus, ['TERMINE', 'ABSENT'])) {
+                if (!$appointment->slot) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Impossible d\'évaluer la date : créneau associé introuvable.'
+                    ], 400);
+                }
+
+                // Reconstruction de la date et de l'heure de début du créneau
+                $slotStartDatetime = Carbon::parse(
+                    $appointment->slot->date_consultation . ' ' . $appointment->slot->start_time
+                );
+
+                // Si la date actuelle est antérieure au début du rendez-vous
+                if (now()->lt($slotStartDatetime)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Le rendez-vous n\'a pas encore eu lieu. Vous ne pouvez pas le marquer comme ' . strtolower($newStatus) . '.'
+                    ], 400);
+                }
+            }
+
+            $appointment->update(['status' => $newStatus]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Statut mis à jour.',
+                'message' => 'Statut mis à jour avec succès.',
                 'data' => $appointment
             ], 200);
         } catch (\Exception $e) {

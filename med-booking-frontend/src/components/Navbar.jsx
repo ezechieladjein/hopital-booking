@@ -146,9 +146,9 @@ export default function Navbar({ keycloak, primaryRole, onRefresh, isRefreshing,
             <span className="text-2xl font-black text-[#0D1B3D] dark:text-white tracking-tight">
               Medi<span className="text-[#2EAF5E]">Go</span>
             </span>
-            <span className="hidden sm:inline-block ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full">
+            {/* <span className="hidden sm:inline-block ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full">
               Medical Suite
-            </span>
+            </span> */}
           </div>
         </div>
 

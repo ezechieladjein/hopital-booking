@@ -1,6 +1,5 @@
-// src/HomePage.jsx
 import React from 'react';
-import { login, getKeycloak } from './keycloak-init';
+import { login, getKeycloak, clearStoredTokens } from './keycloak-init';
 import { 
   Calendar, 
   Shield, 
@@ -39,10 +38,11 @@ export default function HomePage() {
 
   const handleRegister = (e) => {
     e.preventDefault();
+    // Efface uniquement les jetons sans faire sessionStorage.clear() pour préserver l'état de keycloak-js
+    clearStoredTokens();
     const kc = getKeycloak();
-    sessionStorage.clear();
     kc.register({
-      redirectUri: window.location.origin
+      redirectUri: window.location.origin + '/'
     });
   };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import AppointmentChart from "./AppointmentChart";
-import { apiFetch } from './api'; // 🔥 AJOUT (remplace axios)
+import { apiFetch } from './api';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("stats");
@@ -40,7 +40,6 @@ export default function AdminDashboard() {
     loadData();
   }, [period]);
 
-  // 🔥 loadData avec apiFetch au lieu de axios
   const loadData = async () => {
     setLoading(true);
     setAnimateChart(false);
@@ -67,7 +66,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleOpenConfirmedDetails avec apiFetch
   const handleOpenConfirmedDetails = async () => {
     setLoadingDetails(true);
     try {
@@ -80,7 +78,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleAddSpeciality avec apiFetch
   const handleAddSpeciality = async (e) => {
     e.preventDefault();
     if (!newSpec.nom) return;
@@ -96,7 +93,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleUpdateSpeciality avec apiFetch
   const handleUpdateSpeciality = async (e) => {
     e.preventDefault();
     try {
@@ -111,7 +107,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleDeleteSpeciality avec apiFetch
   const handleDeleteSpeciality = async (id) => {
     if (!window.confirm("Voulez-vous vraiment supprimer cette spécialité ?"))
       return;
@@ -125,7 +120,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleAddDoctor avec apiFetch
   const handleAddDoctor = async (e) => {
     e.preventDefault();
     if (!newDoc.nom || !newDoc.prenom || !newDoc.speciality_id) return;
@@ -141,7 +135,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleToggleDoctor avec apiFetch
   const handleToggleDoctor = async (id) => {
     try {
       await apiFetch(`/admin/doctors/${id}/toggle-status`, {
@@ -153,7 +146,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 🔥 handleCreateStaff avec apiFetch
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     if (!newStaff.password) {

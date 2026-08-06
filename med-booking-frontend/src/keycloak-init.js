@@ -2,6 +2,7 @@
 import Keycloak from 'keycloak-js';
 
 const keycloakConfig = {
+    /*url: import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8085',*/
     url: '/keycloak',
     realm: 'med-booking-realm',
     clientId: 'med-booking-front',
@@ -18,7 +19,7 @@ export const getKeycloak = () => {
     return keycloakInstance;
 };
 
-const clearStoredTokens = () => {
+export const clearStoredTokens = () => {
     sessionStorage.removeItem('kc_token');
     sessionStorage.removeItem('kc_refreshToken');
     sessionStorage.removeItem('kc_idToken');
@@ -45,28 +46,28 @@ export const initKeycloak = () => {
                              window.location.hash.includes('code=') ||
                              window.location.search.includes('state=');
 
-    const token = hasAuthCodeInUrl ? null : sessionStorage.getItem('kc_token');
-    const refreshToken = hasAuthCodeInUrl ? null : sessionStorage.getItem('kc_refreshToken');
-    const idToken = hasAuthCodeInUrl ? null : sessionStorage.getItem('kc_idToken');
+    const token = sessionStorage.getItem('kc_token');
+    const refreshToken = sessionStorage.getItem('kc_refreshToken');
+    const idToken = sessionStorage.getItem('kc_idToken');
 
     const initOptions = {
+        // 🔥 CHANGEMENT : login-required au lieu de check-sso
+        onLoad: 'login-required', // Force la redirection vers login si pas authentifié
         checkLoginIframe: false,
         pkceMethod: 'S256',
-        redirectUri: window.location.origin,
+        redirectUri: window.location.origin + '/app', // 👈 Route protégée
+        silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html',
     };
 
-    if (token) {
+    if (token && !hasAuthCodeInUrl) {
         initOptions.token = token;
         initOptions.refreshToken = refreshToken || undefined;
         initOptions.idToken = idToken || undefined;
-    } else if (!hasAuthCodeInUrl) {
-        initOptions.onLoad = 'check-sso';
-        initOptions.silentCheckSsoRedirectUri = window.location.origin + '/silent-check-sso.html';
     }
 
     initPromise = keycloak.init(initOptions)
     .then((auth) => {
-        console.log(`✅ Keycloak initialisé, authentifié = ${auth}`);
+        console.log(`Keycloak initialisé, authentifié = ${auth}`);
         isInitialized = true;
 
         window.keycloak = keycloak;
@@ -75,8 +76,12 @@ export const initKeycloak = () => {
         if (auth) {
             saveTokens(keycloak);
 
+            if (hasAuthCodeInUrl) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
             keycloak.onTokenExpired = () => {
-                console.log("🔄 Token expiré, rafraîchissement...");
+                console.log("Token expiré, rafraîchissement...");
                 keycloak.updateToken(30).then((refreshed) => {
                     if (refreshed) {
                         saveTokens(keycloak);
@@ -93,7 +98,7 @@ export const initKeycloak = () => {
         return auth;
     })
     .catch((err) => {
-        console.error("❌ Erreur d'initialisation Keycloak:", err);
+        console.error("Erreur d'initialisation Keycloak:", err);
         clearStoredTokens();
         initPromise = null;
         return false;
@@ -105,9 +110,10 @@ export const initKeycloak = () => {
 export const login = () => {
     const keycloak = getKeycloak();
     clearStoredTokens();
+    // CHANGEMENT : prompt: 'select_account' pour choisir le compte
     keycloak.login({
-        redirectUri: window.location.origin,
-        prompt: 'login' 
+        redirectUri: window.location.origin + '/app',
+        prompt: 'select_account'
     });
 };
 
@@ -116,8 +122,9 @@ export const logout = () => {
     clearStoredTokens();
     window.keycloak = null;
     window.keycloakAuthenticated = false;
+    
     keycloak.logout({
-        redirectUri: window.location.origin
+        redirectUri: window.location.origin + '/'
     });
 };
 

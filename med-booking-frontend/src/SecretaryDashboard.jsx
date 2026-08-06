@@ -323,6 +323,18 @@ export default function SecretaryDashboard() {
     }
   };
 
+  // Vérifie si le rendez-vous a déjà démarré ou est passé
+  const isAppointmentStarted = (dateConsultation, startTime) => {
+    if (!dateConsultation || !startTime) return false;
+
+    // Formatage propre pour instancier la Date JS (ex: "2026-08-05T09:00:00")
+    const formattedStartTime = startTime.length === 5 ? `${startTime}:00` : startTime;
+    const apptDateTime = new Date(`${dateConsultation}T${formattedStartTime}`);
+    const now = new Date();
+
+    return now >= apptDateTime;
+  };
+
   // handleGenerateSlots avec apiFetch
   const handleGenerateSlots = async () => {
     if (!selectedDoctor || !startDateGen || !endDateGen) {
@@ -519,26 +531,47 @@ export default function SecretaryDashboard() {
                               Valider Assurance
                             </button>
                           ) : appt.status === "CONFIRME" ? (
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={() =>
-                                  handleUpdateStatus(appt.id, "TERMINE")
-                                }
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold transition shadow-sm"
-                                title="Consultation réalisée"
-                              >
-                                ✓ Terminé
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleUpdateStatus(appt.id, "ABSENT")
-                                }
-                                className="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[11px] font-bold transition shadow-sm"
-                                title="Patient ne s'est pas présenté"
-                              >
-                                ✗ Absent
-                              </button>
-                            </div>
+                            (() => {
+                              const canChangeStatus = isAppointmentStarted(
+                                appt.slot?.date_consultation,
+                                appt.slot?.start_time
+                              );
+
+                              return (
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    disabled={!canChangeStatus}
+                                    onClick={() => handleUpdateStatus(appt.id, "TERMINE")}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shadow-sm ${canChangeStatus
+                                        ? "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                                      }`}
+                                    title={
+                                      canChangeStatus
+                                        ? "Consultation réalisée"
+                                        : "Le rendez-vous n'a pas encore eu lieu"
+                                    }
+                                  >
+                                    ✓ Terminé
+                                  </button>
+                                  <button
+                                    disabled={!canChangeStatus}
+                                    onClick={() => handleUpdateStatus(appt.id, "ABSENT")}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shadow-sm ${canChangeStatus
+                                        ? "bg-amber-500 hover:bg-amber-600 text-white cursor-pointer"
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                                      }`}
+                                    title={
+                                      canChangeStatus
+                                        ? "Patient ne s'est pas présenté"
+                                        : "Le rendez-vous n'a pas encore eu lieu"
+                                    }
+                                  >
+                                    ✗ Absent
+                                  </button>
+                                </div>
+                              );
+                            })()
                           ) : (
                             <span className="text-gray-300 text-[10px] italic">
                               Aucune action
