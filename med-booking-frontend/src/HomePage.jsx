@@ -1,5 +1,6 @@
 import React from 'react';
 import { login, getKeycloak, clearStoredTokens } from './keycloak-init';
+import bgMedical from './assets/background-medical.jpeg';
 import { 
   Calendar, 
   Shield, 

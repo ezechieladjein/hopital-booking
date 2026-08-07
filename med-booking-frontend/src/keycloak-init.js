@@ -3,7 +3,7 @@ import Keycloak from 'keycloak-js';
 
 const keycloakConfig = {
     /*url: import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8085',*/
-    url: '/keycloak',
+    url: window.location.origin + '/keycloak',
     realm: 'med-booking-realm',
     clientId: 'med-booking-front',
 };
@@ -51,11 +51,11 @@ export const initKeycloak = () => {
     const idToken = sessionStorage.getItem('kc_idToken');
 
     const initOptions = {
-        // 🔥 CHANGEMENT : login-required au lieu de check-sso
-        onLoad: 'login-required', // Force la redirection vers login si pas authentifié
+        // CHANGEMENT : login-required au lieu de check-sso
+        onLoad: 'check-sso',
         checkLoginIframe: false,
         pkceMethod: 'S256',
-        redirectUri: window.location.origin + '/app', // 👈 Route protégée
+        redirectUri: window.location.origin + '/',
         silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html',
     };
 
@@ -112,7 +112,7 @@ export const login = () => {
     clearStoredTokens();
     // CHANGEMENT : prompt: 'select_account' pour choisir le compte
     keycloak.login({
-        redirectUri: window.location.origin + '/app',
+        redirectUri: window.location.origin + '/',
         prompt: 'select_account'
     });
 };

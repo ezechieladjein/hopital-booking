@@ -10,12 +10,6 @@ use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\PasswordController;
 use App\Http\Middleware\KeycloakJwtAuth;
 
-/*
-|--------------------------------------------------------------------------
-| Routes API - Application Médicale Hopital / Medigo
-|--------------------------------------------------------------------------
-*/
-
 // ==========================================
 // 1. ROUTES PUBLIQUES (Sans authentification)
 // ==========================================
