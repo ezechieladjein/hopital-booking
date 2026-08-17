@@ -74,6 +74,9 @@ class KeycloakJwtAuth
 
         $request->attributes->set('keycloak_user', $payload);
         $request->attributes->set('user', $user);
+        
+        // AJOUT : Attacher l'utilisateur à l'instance auth pour auth()->id()
+        auth()->setUser($user);
 
         return $next($request);
     }

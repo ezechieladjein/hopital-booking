@@ -1,3 +1,4 @@
+// src/PatientAppointmentsList.jsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Calendar,
@@ -18,10 +19,10 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { apiFetch } from './api';
+import { useTheme } from './context/ThemeContext';
 
 const ITEMS_PER_PAGE = 5;
 
-// --- 1. CONSTANTE DES STATUTS AUTORISÉS (AJOUTÉE) ---
 const ALLOWED_STATUSES_FOR_EDIT = [
   "CONFIRME",
   "EN_ATTENTE_PAIEMENT",
@@ -29,10 +30,10 @@ const ALLOWED_STATUSES_FOR_EDIT = [
 ];
 
 export default function PatientAppointmentsList({ keycloakUuid }) {
+  const { darkMode } = useTheme();
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Notification Toast state
   const [toast, setToast] = useState({
     show: false,
     type: "success",
@@ -40,10 +41,8 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
     message: "",
   });
 
-  // Confirmation Modal State (Cancel appointment)
   const [cancelModal, setCancelModal] = useState({ open: false, apptId: null });
 
-  // Pagination & Filtering state
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [dateFilter, setDateFilter] = useState("");
@@ -55,7 +54,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
 
   const [showHiddenExpired, setShowHiddenExpired] = useState(false);
 
-  // Modale de modification
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState(null);
   const [catalog, setCatalog] = useState([]);
@@ -74,10 +72,8 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
   const [availableDoctors, setAvailableDoctors] = useState([]);
   const [availableSlots, setAvailableSlots] = useState([]);
 
-  // État de l'action en cours
   const [actionLoading, setActionLoading] = useState(null);
 
-  // Auto-dismiss Toast après 4 secondes
   useEffect(() => {
     if (toast.show) {
       const timer = setTimeout(() => {
@@ -93,7 +89,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
 
   const getApptId = (appt) => appt?.id ?? appt?.appointment_id;
 
-  // Remplacer getHeaders par apiFetch
   const fetchAppointments = useCallback(async () => {
     setLoading(true);
     try {
@@ -166,7 +161,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
   const getEffectiveStatus = (appt) =>
     isAppointmentExpired(appt) ? "EXPIRE" : appt.status;
 
-  // handlePayment avec apiFetch
   const handlePayment = async (apptId) => {
     if (!apptId || actionLoading) return;
 
@@ -198,7 +192,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
     }
   };
 
-  // executeCancel avec apiFetch
   const executeCancel = async () => {
     const apptId = cancelModal.apptId;
     if (!apptId) return;
@@ -238,7 +231,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
     }
   };
 
-  // fetchSlotsForDoctorAndDate avec apiFetch
   const fetchSlotsForDoctorAndDate = async (doctorId, date) => {
     if (!doctorId || !date) return;
     try {
@@ -299,7 +291,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
     fetchSlotsForDoctorAndDate(editForm.doctorId, date);
   };
 
-  // handleSaveEdit avec apiFetch
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     const apptId = getApptId(selectedAppt);
@@ -362,7 +353,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
     }
   };
 
-  // Filtrage des rendez-vous
   const filteredAppointments = useMemo(() => {
     return appointments
       .filter((appt) => {
@@ -385,7 +375,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
     dateFilter,
   ]);
 
-  // Pagination calculée
   const totalPages =
     Math.ceil(filteredAppointments.length / ITEMS_PER_PAGE) || 1;
   const paginatedAppointments = useMemo(() => {
@@ -401,7 +390,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
 
   if (loading) {
     return (
-      <div className="p-12 text-center text-gray-500 font-medium flex flex-col items-center justify-center gap-3">
+      <div className={`p-12 text-center font-medium flex flex-col items-center justify-center gap-3 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
         <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
         <span>Chargement de vos rendez-vous...</span>
       </div>
@@ -409,17 +398,13 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
   }
 
   return (
-    <div className="space-y-5 relative">
+    <div className={`space-y-5 relative ${darkMode ? 'text-gray-200' : ''}`}>
       {/* SYSTEME TOAST NOTIFICATION */}
       {toast.show && (
         <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full animate-bounce-in">
-          <div
-            className={`p-4 rounded-2xl shadow-xl border flex items-start gap-3 bg-white ${
-              toast.type === "success"
-                ? "border-emerald-200"
-                : "border-rose-200"
-            }`}
-          >
+          <div className={`p-4 rounded-2xl shadow-xl border flex items-start gap-3 ${
+            darkMode ? 'bg-[#1E293B] border-gray-700' : 'bg-white'
+          }`}>
             {toast.type === "success" ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
             ) : (
@@ -429,17 +414,17 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
               <h4
                 className={`text-xs font-bold ${
                   toast.type === "success"
-                    ? "text-emerald-900"
-                    : "text-rose-900"
+                    ? darkMode ? 'text-emerald-300' : 'text-emerald-900'
+                    : darkMode ? 'text-rose-300' : 'text-rose-900'
                 }`}
               >
                 {toast.title}
               </h4>
-              <p className="text-xs text-gray-600 mt-0.5">{toast.message}</p>
+              <p className={`text-xs mt-0.5 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{toast.message}</p>
             </div>
             <button
               onClick={() => setToast((prev) => ({ ...prev, show: false }))}
-              className="text-gray-400 hover:text-gray-600 p-0.5"
+              className={`${darkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'} p-0.5`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -448,13 +433,17 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
       )}
 
       {/* EN-TÊTE + BARRE DE FILTRES */}
-      <div className="flex flex-col gap-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+      <div className={`flex flex-col gap-4 p-4 rounded-2xl border shadow-sm ${
+        darkMode 
+          ? 'bg-[#1E293B] border-gray-700' 
+          : 'bg-white border-gray-100'
+      }`}>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
-            <h2 className="text-xl font-bold text-[#0D1B3D]">
+            <h2 className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
               Vos rendez-vous
             </h2>
-            <p className="text-xs text-gray-500">
+            <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
               Gérez, modifiez ou réglez vos consultations médicales
             </p>
           </div>
@@ -464,7 +453,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
               setShowHiddenExpired(!showHiddenExpired);
               setCurrentPage(1);
             }}
-            className="flex items-center gap-1.5 bg-gray-50 hover:bg-gray-100 border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-medium transition"
+            className={`flex items-center gap-1.5 border px-3 py-1.5 rounded-xl text-xs font-medium transition ${
+              darkMode 
+                ? 'bg-[#111827] border-gray-600 text-gray-300 hover:bg-gray-700' 
+                : 'bg-gray-50 border text-gray-700 hover:bg-gray-100'
+            }`}
           >
             {showHiddenExpired ? (
               <EyeOff className="w-3.5 h-3.5" />
@@ -480,15 +473,19 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
         {/* RECHERCHE ET FILTRES */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t">
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <div className="flex items-center gap-1.5 bg-gray-50 border px-3 py-1.5 rounded-xl text-xs">
-              <Filter className="w-3.5 h-3.5 text-gray-400" />
+            <div className={`flex items-center gap-1.5 border px-3 py-1.5 rounded-xl text-xs ${
+              darkMode 
+                ? 'bg-[#111827] border-gray-600' 
+                : 'bg-gray-50'
+            }`}>
+              <Filter className={`w-3.5 h-3.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`} />
               <select
                 value={statusFilter}
                 onChange={(e) => {
                   setStatusFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="bg-transparent outline-none font-medium text-gray-700"
+                className={`bg-transparent outline-none font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
               >
                 <option value="ALL">Tous les statuts</option>
                 <option value="CONFIRME">Confirmés</option>
@@ -499,8 +496,12 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
               </select>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-gray-50 border px-3 py-1.5 rounded-xl text-xs">
-              <Calendar className="w-3.5 h-3.5 text-gray-400" />
+            <div className={`flex items-center gap-1.5 border px-3 py-1.5 rounded-xl text-xs ${
+              darkMode 
+                ? 'bg-[#111827] border-gray-600' 
+                : 'bg-gray-50'
+            }`}>
+              <Calendar className={`w-3.5 h-3.5 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`} />
               <input
                 type="date"
                 value={dateFilter}
@@ -508,7 +509,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                   setDateFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="bg-transparent outline-none font-medium text-gray-700"
+                className={`bg-transparent outline-none font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}
               />
             </div>
 
@@ -523,7 +524,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
             )}
           </div>
 
-          <div className="text-xs text-gray-500 font-medium">
+          <div className={`text-xs font-medium ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
             <strong>{filteredAppointments.length}</strong> rendez-vous trouvé(s)
           </div>
         </div>
@@ -531,7 +532,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
 
       {/* LISTE DES RENDEZ-VOUS PAGINÉS */}
       {paginatedAppointments.length === 0 ? (
-        <div className="bg-white p-8 rounded-2xl border text-center text-gray-500">
+        <div className={`p-8 rounded-2xl border text-center ${
+          darkMode 
+            ? 'bg-[#1E293B] border-gray-700 text-gray-500' 
+            : 'bg-white border-gray-100 text-gray-500'
+        }`}>
           <Calendar className="w-10 h-10 mx-auto text-gray-400 mb-2" />
           <p className="font-medium text-sm">Aucun rendez-vous trouvé.</p>
           {(statusFilter !== "ALL" || dateFilter !== "") && (
@@ -580,7 +585,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
             return (
               <div
                 key={currentId || index}
-                className={`bg-white border rounded-2xl p-5 shadow-sm space-y-4 ${isHidden ? "opacity-60 bg-gray-50" : ""}`}
+                className={`border rounded-2xl p-5 shadow-sm space-y-4 ${
+                  darkMode 
+                    ? `bg-[#1E293B] border-gray-700 ${isHidden ? 'opacity-60' : ''}` 
+                    : `bg-white border-gray-100 ${isHidden ? 'opacity-60 bg-gray-50' : ''}`
+                }`}
               >
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
@@ -588,11 +597,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                       <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-md">
                         N° {absoluteIndex}
                       </span>
-                      <span className="text-xs text-indigo-600 font-bold uppercase">
+                      <span className={`text-xs font-bold uppercase ${darkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
                         {doctor?.speciality?.nom || "Consultation"}
                       </span>
                     </div>
-                    <h3 className="font-bold text-gray-900 text-base">
+                    <h3 className={`font-bold text-base ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                       {doctor
                         ? `Dr. ${doctor.prenom} ${doctor.nom}`
                         : "Médecin non assigné"}
@@ -616,7 +625,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-gray-50 p-3.5 rounded-xl text-xs text-gray-600">
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl text-xs ${
+                  darkMode 
+                    ? 'bg-[#111827] text-gray-300' 
+                    : 'bg-gray-50 text-gray-600'
+                }`}>
                   <div className="space-y-1.5">
                     <div>
                       <strong>Date soin :</strong>{" "}
@@ -630,7 +643,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                     </div>
                     <div>
                       <strong>Montant à payer :</strong>{" "}
-                      <span className="font-bold text-gray-900">
+                      <span className={`font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                         {appt.amount_to_pay} FCFA
                       </span>
                       {Number(appt.insurance_coverage_rate) > 0 &&
@@ -657,7 +670,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                     <div>
                       {hasInsurance ? (
                         <span className="inline-flex items-center gap-1">
-                          Assurance : <strong>{appt.insurance_name}</strong>
+                          Assurance : <strong className={darkMode ? 'text-white' : ''}>{appt.insurance_name}</strong>
                           {Number(appt.insurance_coverage_rate) > 0 ? (
                             <span className="text-emerald-600 font-semibold">
                               ({appt.insurance_coverage_rate}% pris en charge)
@@ -678,7 +691,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                     </div>
                   </div>
                 </div>
-                {/* NOUVEAU BLOC : Message d'explication */}
+
                 {appt.cancellation_reason && (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-rose-900 text-xs">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -693,7 +706,6 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                   </div>
                 )}
 
-                {/* --- 3. BLOC DE BOUTONS MIS À JOUR --- */}
                 <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t">
                   {isPendingPayment && (
                     <button
@@ -716,12 +728,15 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                     </button>
                   )}
 
-                  {/* Affiche "Modifier" et "Annuler" UNIQUEMENT si le statut est autorisé */}
                   {ALLOWED_STATUSES_FOR_EDIT.includes(effectiveStatus) && (
                     <>
                       <button
                         onClick={() => openEditModal(appt)}
-                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition"
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition ${
+                          darkMode 
+                            ? 'bg-indigo-900/30 text-indigo-300 hover:bg-indigo-900/50' 
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                        }`}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                         Modifier
@@ -731,7 +746,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                         onClick={() =>
                           setCancelModal({ open: true, apptId: currentId })
                         }
-                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition"
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition ${
+                          darkMode 
+                            ? 'bg-rose-900/30 text-rose-300 hover:bg-rose-900/50' 
+                            : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                        }`}
                       >
                         {isCancelingThis ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -746,7 +765,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                   {(isExpired || isCanceled) && (
                     <button
                       onClick={() => toggleHideExpiredAppointment(currentId)}
-                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl flex items-center gap-1 transition"
+                      className={`px-3 py-1.5 text-xs font-medium rounded-xl flex items-center gap-1 transition ${
+                        darkMode 
+                          ? 'bg-[#111827] text-gray-400 hover:bg-gray-700' 
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
                     >
                       {isHidden ? (
                         <Eye className="w-3.5 h-3.5" />
@@ -765,18 +788,26 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
 
       {/* FOOTER PAGINATION */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t bg-white p-4 rounded-2xl shadow-sm">
+        <div className={`flex items-center justify-between border-t p-4 rounded-2xl shadow-sm ${
+          darkMode 
+            ? 'bg-[#1E293B] border-gray-700' 
+            : 'bg-white border-gray-100'
+        }`}>
           <button
             onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
             disabled={currentPage === 1}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gray-50 border hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl border hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed ${
+              darkMode 
+                ? 'bg-[#111827] border-gray-600 text-gray-300 hover:bg-gray-700' 
+                : 'bg-gray-50 border hover:bg-gray-100'
+            }`}
           >
             <ChevronLeft className="w-4 h-4" />
             Précédent
           </button>
 
-          <span className="text-xs text-gray-600 font-medium">
-            Page <strong className="text-gray-900">{currentPage}</strong> sur{" "}
+          <span className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            Page <strong className={darkMode ? 'text-white' : 'text-gray-900'}>{currentPage}</strong> sur{" "}
             <strong>{totalPages}</strong>
           </span>
 
@@ -785,7 +816,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
               setCurrentPage((prev) => Math.min(prev + 1, totalPages))
             }
             disabled={currentPage === totalPages}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gray-50 border hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl border hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed ${
+              darkMode 
+                ? 'bg-[#111827] border-gray-600 text-gray-300 hover:bg-gray-700' 
+                : 'bg-gray-50 border hover:bg-gray-100'
+            }`}
           >
             Suivant
             <ChevronRight className="w-4 h-4" />
@@ -796,17 +831,19 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
       {/* MODALE DE CONFIRMATION D'ANNULATION */}
       {cancelModal.open && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+          <div className={`rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 ${
+            darkMode ? 'bg-[#1E293B]' : 'bg-white'
+          }`}>
             <div className="flex items-center gap-3 text-rose-600">
               <div className="p-2.5 bg-rose-50 rounded-xl">
                 <AlertTriangle className="w-6 h-6" />
               </div>
-              <h3 className="font-bold text-gray-900 text-base">
+              <h3 className={`font-bold text-base ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                 Confirmer l'annulation
               </h3>
             </div>
 
-            <p className="text-xs text-gray-600 leading-relaxed">
+            <p className={`text-xs leading-relaxed ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
               Êtes-vous absolument certain de vouloir annuler ce rendez-vous ?
               Cette action est irréversible et libérera le créneau horaire pour
               d'autres patients.
@@ -815,7 +852,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
             <div className="flex justify-end gap-2 pt-2 border-t">
               <button
                 onClick={() => setCancelModal({ open: false, apptId: null })}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl transition"
+                className={`px-4 py-2 text-xs font-medium rounded-xl transition ${
+                  darkMode 
+                    ? 'bg-[#111827] text-gray-400 hover:bg-gray-700' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
               >
                 Non, conserver
               </button>
@@ -833,24 +874,25 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
         </div>
       )}
 
-      {/* --- 2. MODALE DE MODIFICATION (MISE À JOUR) --- */}
+      {/* MODALE DE MODIFICATION */}
       {editModalOpen && selectedAppt && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+          <div className={`rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto ${
+            darkMode ? 'bg-[#1E293B]' : 'bg-white'
+          }`}>
+            <div className={`flex justify-between items-center border-b pb-3 ${darkMode ? 'border-gray-700' : ''}`}>
+              <h3 className={`font-bold text-base flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                 <Edit3 className="w-4 h-4 text-indigo-600" />
                 Modifier la demande de rendez-vous
               </h3>
               <button
                 onClick={() => setEditModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className={`${darkMode ? 'text-gray-400 hover:text-gray-200' : 'text-gray-400 hover:text-gray-600'}`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* BANNIÈRE D'INFORMATION POUR RDV CONFIRMÉ */}
             {selectedAppt.status === "CONFIRME" && (
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
@@ -862,16 +904,19 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
 
             <form onSubmit={handleSaveEdit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* SPÉCIALITÉ */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                     Spécialité
                   </label>
                   <select
                     value={editForm.specialityId}
                     onChange={(e) => handleSpecialityChange(e.target.value)}
                     disabled={selectedAppt.status === "CONFIRME"}
-                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    className={`w-full border p-2.5 rounded-xl text-xs focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                      darkMode 
+                        ? 'bg-[#111827] border-gray-600 text-gray-200' 
+                        : 'bg-white'
+                    }`}
                   >
                     <option value="">-- Spécialité --</option>
                     {catalog.map((spec) => (
@@ -882,16 +927,19 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                   </select>
                 </div>
 
-                {/* MÉDECIN */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                     Médecin
                   </label>
                   <select
                     value={editForm.doctorId}
                     onChange={(e) => handleDoctorChange(e.target.value)}
                     disabled={selectedAppt.status === "CONFIRME" || !editForm.specialityId}
-                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    className={`w-full border p-2.5 rounded-xl text-xs focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                      darkMode 
+                        ? 'bg-[#111827] border-gray-600 text-gray-200' 
+                        : 'bg-white'
+                    }`}
                   >
                     <option value="">-- Médecin --</option>
                     {availableDoctors.map((doc) => (
@@ -904,9 +952,8 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* DATE */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                     Date de consultation
                   </label>
                   <input
@@ -915,13 +962,16 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                     value={editForm.date}
                     onChange={(e) => handleDateChange(e.target.value)}
                     disabled={!editForm.doctorId}
-                    className="w-full border p-2.5 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    className={`w-full border p-2.5 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                      darkMode 
+                        ? 'bg-[#111827] border-gray-600 text-gray-200' 
+                        : 'bg-white'
+                    }`}
                   />
                 </div>
 
-                {/* CRÉNEAU HORAIRE */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                     Créneau horaire
                   </label>
                   <select
@@ -933,7 +983,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                       }))
                     }
                     disabled={!editForm.date}
-                    className="w-full border p-2.5 rounded-xl text-xs bg-white focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    className={`w-full border p-2.5 rounded-xl text-xs focus:border-indigo-500 outline-none disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                      darkMode 
+                        ? 'bg-[#111827] border-gray-600 text-gray-200' 
+                        : 'bg-white'
+                    }`}
                   >
                     <option value="">-- Créneau --</option>
                     {availableSlots.map((s) => (
@@ -945,9 +999,8 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                 </div>
               </div>
 
-              {/* ASSURANCE (Désactivée si CONFIRME) */}
-              <div className="border-t pt-3 space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-800">
+              <div className={`border-t pt-3 space-y-3 ${darkMode ? 'border-gray-700' : ''}`}>
+                <label className={`flex items-center gap-2 cursor-pointer text-xs font-semibold ${darkMode ? 'text-gray-300' : 'text-gray-800'}`}>
                   <input
                     type="checkbox"
                     checked={editForm.hasInsurance}
@@ -966,7 +1019,7 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                 {editForm.hasInsurance && (
                   <div className="space-y-3 pl-2 border-l-2 border-indigo-200">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                         Nom de l'assurance
                       </label>
                       <input
@@ -980,13 +1033,17 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                             insuranceName: e.target.value,
                           }))
                         }
-                        className="w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        className={`w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                          darkMode 
+                            ? 'bg-[#111827] border-gray-600 text-gray-200' 
+                            : 'bg-white'
+                        }`}
                         required={editForm.hasInsurance}
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                         N° Assuré / Police
                       </label>
                       <input
@@ -1000,14 +1057,18 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                             insurancePolicyNumber: e.target.value,
                           }))
                         }
-                        className="w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        className={`w-full border p-2 rounded-xl text-xs outline-none focus:border-indigo-500 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                          darkMode 
+                            ? 'bg-[#111827] border-gray-600 text-gray-200' 
+                            : 'bg-white'
+                        }`}
                         required={editForm.hasInsurance}
                       />
                     </div>
 
                     {selectedAppt.status !== "CONFIRME" && (
                       <div>
-                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        <label className={`block text-xs font-semibold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                           Document justificatif (Optionnel si déjà fourni)
                         </label>
                         <input
@@ -1019,7 +1080,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                               insuranceDocument: e.target.files[0],
                             }))
                           }
-                          className="w-full border p-2 rounded-xl text-xs bg-white"
+                          className={`w-full border p-2 rounded-xl text-xs ${
+                            darkMode 
+                              ? 'bg-[#111827] border-gray-600 text-gray-400' 
+                              : 'bg-white'
+                          }`}
                         />
                       </div>
                     )}
@@ -1031,7 +1096,11 @@ export default function PatientAppointmentsList({ keycloakUuid }) {
                 <button
                   type="button"
                   onClick={() => setEditModalOpen(false)}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl"
+                  className={`px-4 py-2 text-xs font-medium rounded-xl ${
+                    darkMode 
+                      ? 'bg-[#111827] text-gray-400 hover:bg-gray-700' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
                 >
                   Annuler
                 </button>

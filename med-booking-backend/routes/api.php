@@ -8,6 +8,7 @@ use App\Http\Controllers\API\PaymentController;
 use App\Http\Controllers\API\AdminController;
 use App\Http\Controllers\API\NotificationController;
 use App\Http\Controllers\API\PasswordController;
+use App\Http\Controllers\API\PatientInsuranceController;
 use App\Http\Middleware\KeycloakJwtAuth;
 
 // ==========================================
@@ -51,6 +52,13 @@ Route::middleware([KeycloakJwtAuth::class . ':patient'])->group(function () {
         Route::post('/verify', [PaymentController::class, 'verifyPayment']);
     });
     Route::get('/appointments/{appointment}/payment-status', [PaymentController::class, 'getPaymentStatus']);
+
+    // Assurance Patient (Wallet)
+    Route::prefix('insurances')->group(function () {
+        Route::get('/patient/{keycloakUuid}', [PatientInsuranceController::class, 'index']);
+        Route::post('/', [PatientInsuranceController::class, 'store']);
+        Route::delete('/{id}', [PatientInsuranceController::class, 'destroy']);
+    });
 });
 
 Route::get('/check-email', function (Request $request) {
@@ -71,6 +79,22 @@ Route::prefix('secretary')->middleware([KeycloakJwtAuth::class . ':secretary'])-
     Route::get('/doctors', [SecretaryController::class, 'getDoctors']);
     Route::post('/appointments/{id}/status', [SecretaryController::class, 'updateStatus']);
 
+    // Récupérer la liste des patients
+    Route::get('/patients', [SecretaryController::class, 'getPatientsList']);
+
+    // Gestion assistée des patients et réservations (Présentiel / Téléphone)
+    Route::post('/patients/search-or-create', [SecretaryController::class, 'findOrCreatePatient']);
+    Route::post('/appointments/assisted-book', [SecretaryController::class, 'createAssistedAppointment']);
+    
+    // Initier un paiement FedaPay depuis le secrétariat
+    Route::post('/payments/initiate', [SecretaryController::class, 'initiateSecretaryPayment']);
+    
+    // Modification et annulation assistée
+    Route::put('/appointments/{id}/assisted-reschedule', [SecretaryController::class, 'rescheduleAssistedAppointment']);
+    Route::post('/appointments/{id}/assisted-cancel', [SecretaryController::class, 'cancelAssistedAppointment']);
+    
+    Route::get('/history', [SecretaryController::class, 'getSecretaryBookingHistory']);
+
     // Assurances
     Route::post('/validate-insurance', [SecretaryController::class, 'validateInsurance']);
     Route::post('/reject-insurance', [SecretaryController::class, 'rejectInsurance']);
@@ -84,8 +108,8 @@ Route::prefix('secretary')->middleware([KeycloakJwtAuth::class . ':secretary'])-
     Route::get('/doctors/{id}/availabilities', [SecretaryController::class, 'getDoctorAvailabilities']);
     Route::post('/doctors/{id}/availabilities', [SecretaryController::class, 'setDoctorAvailabilities']);
     Route::post('/slots/generate', [SecretaryController::class, 'generateDoctorSlots']);
-    
-    // Remboursement (si la secrétaire gère les annulations payées)
+
+    // Remboursement
     Route::post('/payments/refund', [PaymentController::class, 'refundPayment']);
 });
 
@@ -129,7 +153,7 @@ Route::get('/test-keycloak', function () {
             'password' => 'AdminPassword123*',
             'grant_type' => 'password',
         ]);
-        
+
         return response()->json([
             'status' => $response->status(),
             'body' => $response->body(),

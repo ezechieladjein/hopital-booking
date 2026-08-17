@@ -1,8 +1,11 @@
+// src/AdminDashboard.jsx
 import React, { useState, useEffect } from "react";
 import AppointmentChart from "./AppointmentChart";
 import { apiFetch } from './api';
+import { useTheme } from './context/ThemeContext';
 
 export default function AdminDashboard() {
+  const { darkMode } = useTheme();
   const [activeTab, setActiveTab] = useState("stats");
   const [period, setPeriod] = useState("7d");
   const [stats, setStats] = useState(null);
@@ -176,16 +179,20 @@ export default function AdminDashboard() {
 
   if (loading && !stats) {
     return (
-      <div className="p-12 text-center text-gray-500 font-semibold">
+      <div className={`p-12 text-center font-semibold ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
         Chargement de l'espace d'administration...
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 font-['Poppins']">
+    <div className={`space-y-6 font-['Poppins'] ${darkMode ? 'text-neutral-200' : ''}`}>
       {/* Barre de navigation / Onglets & Filtre de période */}
-      <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap justify-between items-center gap-4">
+      <div className={`p-3 rounded-2xl shadow-sm border flex flex-wrap justify-between items-center gap-4 ${
+        darkMode 
+          ? 'bg-neutral-900/80 border-neutral-700/50' 
+          : 'bg-white border-gray-100'
+      }`}>
         <div className="flex flex-wrap gap-2">
           {[
             { id: "stats", label: "Statistiques" },
@@ -199,8 +206,10 @@ export default function AdminDashboard() {
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
                 activeTab === tab.id
-                  ? "bg-[#0D1B3D] text-white shadow-md"
-                  : "text-gray-500 hover:bg-gray-50"
+                  ? "bg-[#0D1B3D] dark:bg-blue-600 text-white shadow-md"
+                  : darkMode 
+                    ? "text-neutral-400 hover:bg-neutral-800/50" 
+                    : "text-gray-500 hover:bg-gray-50"
               }`}
             >
               {tab.label}
@@ -209,8 +218,12 @@ export default function AdminDashboard() {
         </div>
 
         {activeTab === "stats" && (
-          <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-xl border border-gray-200">
-            <span className="text-[11px] font-bold text-gray-400 pl-2">Période :</span>
+          <div className={`flex items-center gap-2 p-1.5 rounded-xl border ${
+            darkMode 
+              ? 'bg-neutral-800/50 border-neutral-700' 
+              : 'bg-gray-50 border-gray-200'
+          }`}>
+            <span className={`text-[11px] font-bold pl-2 ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>Période :</span>
             {[
               { id: "7d", label: "7 jours" },
               { id: "30d", label: "30 jours" },
@@ -223,8 +236,12 @@ export default function AdminDashboard() {
                 onClick={() => setPeriod(p.id)}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
                   period === p.id
-                    ? "bg-white text-[#0D1B3D] shadow-sm"
-                    : "text-gray-500 hover:text-gray-800"
+                    ? darkMode 
+                      ? "bg-neutral-800 text-white shadow-sm" 
+                      : "bg-white text-[#0D1B3D] shadow-sm"
+                    : darkMode 
+                      ? "text-neutral-400 hover:text-neutral-200" 
+                      : "text-gray-500 hover:text-gray-800"
                 }`}
               >
                 {p.label}
@@ -250,36 +267,52 @@ export default function AdminDashboard() {
 
             <div
               onClick={handleOpenConfirmedDetails}
-              className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm cursor-pointer hover:border-emerald-300 hover:shadow-md transition group"
+              className={`p-5 rounded-2xl border shadow-sm cursor-pointer hover:border-emerald-400 hover:shadow-md transition group ${
+                darkMode 
+                  ? 'bg-neutral-900/80 border-neutral-700' 
+                  : 'bg-white border-emerald-100'
+              }`}
             >
               <div className="flex justify-between items-center">
-                <p className="text-xs font-bold text-gray-400 uppercase">RDV Confirmés</p>
-                <span className="text-[10px] text-emerald-600 font-bold opacity-0 group-hover:opacity-100 transition">
+                <p className={`text-xs font-bold uppercase ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>RDV Confirmés</p>
+                <span className="text-[10px] text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition">
                   Voir détails →
                 </span>
               </div>
-              <p className="text-3xl font-black text-[#2EAF5E] mt-2">
+              <p className="text-3xl font-black text-[#2EAF5E] dark:text-emerald-400 mt-2">
                 {stats?.confirmed_appointments ?? 0}
               </p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase">Médecins (Actifs / Total)</p>
-              <p className="text-3xl font-black text-[#0D1B3D] mt-2">
+            <div className={`p-5 rounded-2xl border shadow-sm ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
+              <p className={`text-xs font-bold uppercase ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>Médecins (Actifs / Total)</p>
+              <p className={`text-3xl font-black mt-2 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
                 {stats?.active_doctors ?? 0}
-                <span className="text-sm font-normal text-gray-400"> / {stats?.total_doctors ?? 0}</span>
+                <span className={`text-sm font-normal ${darkMode ? 'text-neutral-500' : 'text-gray-400'}`}> / {stats?.total_doctors ?? 0}</span>
               </p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase">Spécialités Actives</p>
+            <div className={`p-5 rounded-2xl border shadow-sm ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
+              <p className={`text-xs font-bold uppercase ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>Spécialités Actives</p>
               <p className="text-3xl font-black text-amber-500 mt-2">
                 {stats?.total_specialities ?? 0}
               </p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase">Patients Enregistrés</p>
+            <div className={`p-5 rounded-2xl border shadow-sm ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
+              <p className={`text-xs font-bold uppercase ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>Patients Enregistrés</p>
               <p className="text-3xl font-black text-indigo-600 mt-2">
                 {stats?.total_patients ?? 0}
               </p>
@@ -287,24 +320,32 @@ export default function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+            <div className={`p-6 rounded-2xl border shadow-sm ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
               <AppointmentChart data={stats?.chart_data || []} />
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
-              <h3 className="text-sm font-bold text-[#0D1B3D]">
+            <div className={`p-6 rounded-2xl border shadow-sm space-y-4 ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
+              <h3 className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
                 Charge par Spécialité (Médecins rattachés)
               </h3>
               <div className="space-y-4 pt-2 max-h-48 overflow-y-auto">
                 {specialities.map((spec) => (
                   <div key={spec.id} className="space-y-1">
-                    <div className="flex justify-between text-xs font-bold">
-                      <span className="text-gray-700">{spec.nom}</span>
-                      <span className="text-gray-400">{spec.doctors_count ?? 0} Médecin(s)</span>
+                    <div className={`flex justify-between text-xs font-bold ${darkMode ? 'text-neutral-300' : 'text-gray-700'}`}>
+                      <span>{spec.nom}</span>
+                      <span className={darkMode ? 'text-neutral-500' : 'text-gray-400'}>{spec.doctors_count ?? 0} Médecin(s)</span>
                     </div>
-                    <div className="w-full bg-gray-100 h-2.5 rounded-full overflow-hidden">
+                    <div className={`w-full h-2.5 rounded-full overflow-hidden ${darkMode ? 'bg-neutral-700' : 'bg-gray-100'}`}>
                       <div
-                        className="bg-[#2EAF5E] h-full rounded-full transition-all duration-500"
+                        className="bg-[#2EAF5E] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
                         style={{
                           width: `${Math.min(((spec.doctors_count ?? 0) / Math.max(doctors.length, 1)) * 100, 100)}%`,
                         }}
@@ -321,13 +362,17 @@ export default function AdminDashboard() {
       {/* 2. VUE : SPÉCIALITÉS */}
       {activeTab === "specialities" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">
+          <div className={`p-6 rounded-2xl border shadow-sm h-fit ${
+            darkMode 
+              ? 'bg-neutral-900/80 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
+            <h2 className={`text-base font-bold mb-4 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
               {editingSpec ? "Modifier la Spécialité" : "Nouvelle Spécialité"}
             </h2>
             <form onSubmit={editingSpec ? handleUpdateSpeciality : handleAddSpeciality} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Nom de la Spécialité</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Nom de la Spécialité</label>
                 <input
                   type="text"
                   value={editingSpec ? editingSpec.nom : newSpec.nom}
@@ -337,12 +382,16 @@ export default function AdminDashboard() {
                       : setNewSpec({ ...newSpec, nom: e.target.value })
                   }
                   placeholder="ex: Cardiologie"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Durée consultation (minutes)</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Durée consultation (minutes)</label>
                 <input
                   type="number"
                   value={editingSpec ? editingSpec.duree_consultation : newSpec.duree_consultation}
@@ -351,12 +400,16 @@ export default function AdminDashboard() {
                       ? setEditingSpec({ ...editingSpec, duree_consultation: parseInt(e.target.value) })
                       : setNewSpec({ ...newSpec, duree_consultation: parseInt(e.target.value) })
                   }
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Tarif (FCFA)</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Tarif (FCFA)</label>
                 <input
                   type="number"
                   value={editingSpec ? editingSpec.tarif : newSpec.tarif}
@@ -365,19 +418,27 @@ export default function AdminDashboard() {
                       ? setEditingSpec({ ...editingSpec, tarif: parseInt(e.target.value) })
                       : setNewSpec({ ...newSpec, tarif: parseInt(e.target.value) })
                   }
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div className="flex gap-2">
-                <button type="submit" className="flex-1 bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm">
+                <button type="submit" className="flex-1 bg-[#0D1B3D] dark:bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-opacity-90 dark:hover:bg-blue-700 transition">
                   {editingSpec ? "Mettre à jour" : "Ajouter"}
                 </button>
                 {editingSpec && (
                   <button
                     type="button"
                     onClick={() => setEditingSpec(null)}
-                    className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm"
+                    className={`px-4 py-2.5 rounded-xl font-bold text-sm ${
+                      darkMode 
+                        ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
                   >
                     Annuler
                   </button>
@@ -386,9 +447,17 @@ export default function AdminDashboard() {
             </form>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm lg:col-span-2 overflow-hidden">
+          <div className={`rounded-2xl border shadow-sm lg:col-span-2 overflow-hidden ${
+            darkMode 
+              ? 'bg-neutral-900/80 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
+              <thead className={`text-xs font-bold uppercase border-b ${
+                darkMode 
+                  ? 'bg-neutral-800 text-neutral-400 border-neutral-700' 
+                  : 'bg-gray-50 text-gray-400 border-gray-100'
+              }`}>
                 <tr>
                   <th className="p-4">Spécialité</th>
                   <th className="p-4">Durée</th>
@@ -397,16 +466,20 @@ export default function AdminDashboard() {
                   <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className={`divide-y ${darkMode ? 'divide-neutral-700' : 'divide-gray-50'}`}>
                 {specialities.map((spec) => (
-                  <tr key={spec.id} className="hover:bg-gray-50/50">
-                    <td className="p-4 font-bold text-[#0D1B3D]">{spec.nom}</td>
-                    <td className="p-4 text-gray-600 font-medium">{spec.duree_consultation} min</td>
-                    <td className="p-4 font-mono font-bold text-[#2EAF5E]">{spec.tarif?.toLocaleString()} FCFA</td>
+                  <tr key={spec.id} className={darkMode ? 'hover:bg-neutral-800/50' : 'hover:bg-gray-50/50'}>
+                    <td className={`p-4 font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>{spec.nom}</td>
+                    <td className={`p-4 font-medium ${darkMode ? 'text-neutral-300' : 'text-gray-600'}`}>{spec.duree_consultation} min</td>
+                    <td className={`p-4 font-mono font-bold text-[#2EAF5E] dark:text-emerald-400`}>{spec.tarif?.toLocaleString()} FCFA</td>
                     <td className="p-4">
                       <button
                         onClick={() => setSelectedSpecForDocs(spec)}
-                        className="px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-xs transition flex items-center gap-1.5"
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ${
+                          darkMode 
+                            ? 'bg-indigo-900/30 text-indigo-300 hover:bg-indigo-900/50' 
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                        }`}
                       >
                         {spec.doctors_count ?? 0} Médecin(s)
                       </button>
@@ -414,13 +487,13 @@ export default function AdminDashboard() {
                     <td className="p-4 text-right space-x-2">
                       <button
                         onClick={() => setEditingSpec(spec)}
-                        className="text-xs font-bold text-gray-600 hover:underline"
+                        className={`text-xs font-bold hover:underline ${darkMode ? 'text-neutral-400' : 'text-gray-600'}`}
                       >
                         Modifier
                       </button>
                       <button
                         onClick={() => handleDeleteSpeciality(spec.id)}
-                        className="text-xs font-bold text-red-600 hover:underline"
+                        className="text-xs font-bold text-red-600 dark:text-red-400 hover:underline"
                       >
                         Supprimer
                       </button>
@@ -436,35 +509,51 @@ export default function AdminDashboard() {
       {/* 3. VUE : MÉDECINS */}
       {activeTab === "doctors" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">Nouveau Médecin</h2>
+          <div className={`p-6 rounded-2xl border shadow-sm h-fit ${
+            darkMode 
+              ? 'bg-neutral-900/80 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
+            <h2 className={`text-base font-bold mb-4 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Nouveau Médecin</h2>
             <form onSubmit={handleAddDoctor} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Prénom</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Prénom</label>
                 <input
                   type="text"
                   value={newDoc.prenom}
                   onChange={(e) => setNewDoc({ ...newDoc, prenom: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Nom</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Nom</label>
                 <input
                   type="text"
                   value={newDoc.nom}
                   onChange={(e) => setNewDoc({ ...newDoc, nom: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Spécialité</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Spécialité</label>
                 <select
                   value={newDoc.speciality_id}
                   onChange={(e) => setNewDoc({ ...newDoc, speciality_id: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 >
                   <option value="">Sélectionnez une spécialité</option>
                   {specialities.map((s) => (
@@ -475,15 +564,23 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <button type="submit" className="w-full bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm">
+              <button type="submit" className="w-full bg-[#0D1B3D] dark:bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-opacity-90 dark:hover:bg-blue-700 transition">
                 Enregistrer Médecin
               </button>
             </form>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm lg:col-span-2 overflow-hidden">
+          <div className={`rounded-2xl border shadow-sm lg:col-span-2 overflow-hidden ${
+            darkMode 
+              ? 'bg-neutral-900/80 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
+              <thead className={`text-xs font-bold uppercase border-b ${
+                darkMode 
+                  ? 'bg-neutral-800 text-neutral-400 border-neutral-700' 
+                  : 'bg-gray-50 text-gray-400 border-gray-100'
+              }`}>
                 <tr>
                   <th className="p-4">Nom du Médecin</th>
                   <th className="p-4">Spécialité</th>
@@ -491,14 +588,14 @@ export default function AdminDashboard() {
                   <th className="p-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className={`divide-y ${darkMode ? 'divide-neutral-700' : 'divide-gray-50'}`}>
                 {doctors.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-gray-50/50">
-                    <td className="p-4 font-bold text-[#0D1B3D]">Dr. {doc.prenom} {doc.nom}</td>
-                    <td className="p-4 text-gray-600 font-medium">{doc.speciality?.nom ?? "Non assigné"}</td>
+                  <tr key={doc.id} className={darkMode ? 'hover:bg-neutral-800/50' : 'hover:bg-gray-50/50'}>
+                    <td className={`p-4 font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Dr. {doc.prenom} {doc.nom}</td>
+                    <td className={`p-4 font-medium ${darkMode ? 'text-neutral-300' : 'text-gray-600'}`}>{doc.speciality?.nom ?? "Non assigné"}</td>
                     <td className="p-4">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                        doc.status === "actif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                        doc.status === "actif" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
                       }`}>
                         {doc.status}
                       </span>
@@ -506,7 +603,7 @@ export default function AdminDashboard() {
                     <td className="p-4 text-right">
                       <button
                         onClick={() => handleToggleDoctor(doc.id)}
-                        className="text-xs font-bold text-indigo-600 hover:underline"
+                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
                       >
                         {doc.status === "actif" ? "Désactiver" : "Activer"}
                       </button>
@@ -521,10 +618,20 @@ export default function AdminDashboard() {
 
       {/* 4. VUE : ABSENCES MÉDECINS */}
       {activeTab === "unavailabilities" && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-bold text-[#0D1B3D]">Registre des Absences et Indisponibilités Saisies</h2>
+        <div className={`p-6 rounded-2xl border shadow-sm space-y-4 ${
+          darkMode 
+            ? 'bg-neutral-900/80 border-neutral-700' 
+            : 'bg-white border-gray-100'
+        }`}>
+          <h2 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
+            Registre des Absences et Indisponibilités Saisies
+          </h2>
           <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
+            <thead className={`text-xs font-bold uppercase border-b ${
+              darkMode 
+                ? 'bg-neutral-800 text-neutral-400 border-neutral-700' 
+                : 'bg-gray-50 text-gray-400 border-gray-100'
+            }`}>
               <tr>
                 <th className="p-3">Médecin</th>
                 <th className="p-3">Type</th>
@@ -534,23 +641,27 @@ export default function AdminDashboard() {
                 <th className="p-3">Statut</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className={`divide-y ${darkMode ? 'divide-neutral-700' : 'divide-gray-50'}`}>
               {unavailabilities.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="p-4 text-center text-gray-400">Aucune absence enregistrée.</td>
+                  <td colSpan="6" className={`p-4 text-center ${darkMode ? 'text-neutral-500' : 'text-gray-400'}`}>
+                    Aucune absence enregistrée.
+                  </td>
                 </tr>
               ) : (
                 unavailabilities.map((u) => (
                   <tr key={u.id}>
-                    <td className="p-3 font-bold text-[#0D1B3D]">Dr. {u.doctor?.prenom} {u.doctor?.nom}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 font-bold text-xs">{u.type}</span>
+                    <td className={`p-3 font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
+                      Dr. {u.doctor?.prenom} {u.doctor?.nom}
                     </td>
-                    <td className="p-3 text-gray-600">{u.reason ?? "N/C"}</td>
-                    <td className="p-3 text-gray-500 font-mono text-xs">{u.start_datetime} au {u.end_datetime}</td>
-                    <td className="p-3 text-gray-600">{u.creator ? `${u.creator.prenom} ${u.creator.nom}` : "N/C"}</td>
                     <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${u.status === "ACTIF" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-bold text-xs">{u.type}</span>
+                    </td>
+                    <td className={`p-3 ${darkMode ? 'text-neutral-300' : 'text-gray-600'}`}>{u.reason ?? "N/C"}</td>
+                    <td className={`p-3 font-mono text-xs ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>{u.start_datetime} au {u.end_datetime}</td>
+                    <td className={`p-3 ${darkMode ? 'text-neutral-300' : 'text-gray-600'}`}>{u.creator ? `${u.creator.prenom} ${u.creator.nom}` : "N/C"}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${u.status === "ACTIF" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"}`}>
                         {u.status}
                       </span>
                     </td>
@@ -565,83 +676,119 @@ export default function AdminDashboard() {
       {/* 5. VUE : STAFF & COMPTES */}
       {activeTab === "users" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-fit">
-            <h2 className="text-base font-bold text-[#0D1B3D] mb-4">Créer Utilisateur Staff</h2>
+          <div className={`p-6 rounded-2xl border shadow-sm h-fit ${
+            darkMode 
+              ? 'bg-neutral-900/80 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
+            <h2 className={`text-base font-bold mb-4 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Créer Utilisateur Staff</h2>
             <form onSubmit={handleCreateStaff} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Prénom</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Prénom</label>
                 <input
                   type="text"
                   value={newStaff.prenom}
                   onChange={(e) => setNewStaff({ ...newStaff, prenom: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Nom</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Nom</label>
                 <input
                   type="text"
                   value={newStaff.nom}
                   onChange={(e) => setNewStaff({ ...newStaff, nom: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Email</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Email</label>
                 <input
                   type="email"
                   value={newStaff.email}
                   onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Téléphone</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Téléphone</label>
                 <input
                   type="text"
                   value={newStaff.telephone}
                   onChange={(e) => setNewStaff({ ...newStaff, telephone: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Mot de passe Keycloak</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Mot de passe Keycloak</label>
                 <input
                   type="password"
                   required
                   placeholder="••••••••"
                   value={newStaff.password}
                   onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Rôle</label>
+                <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Rôle</label>
                 <select
                   value={newStaff.role}
                   onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#0D1B3D]"
+                  className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-[#0D1B3D] dark:focus:border-blue-500 ${
+                    darkMode 
+                      ? 'bg-neutral-800 border-neutral-600 text-neutral-200' 
+                      : 'bg-white border-gray-200'
+                  }`}
                 >
                   <option value="secretaire">Secrétaire</option>
                   <option value="administrateur">Administrateur</option>
                 </select>
               </div>
 
-              <button type="submit" className="w-full bg-[#0D1B3D] text-white py-2.5 rounded-xl font-bold text-sm">
+              <button type="submit" className="w-full bg-[#0D1B3D] dark:bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-opacity-90 dark:hover:bg-blue-700 transition">
                 Enregistrer dans BDD
               </button>
             </form>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm lg:col-span-2 overflow-hidden p-6 space-y-4">
-            <h2 className="text-base font-bold text-[#0D1B3D]">Liste des Utilisateurs</h2>
+          <div className={`rounded-2xl border shadow-sm lg:col-span-2 overflow-hidden p-6 space-y-4 ${
+            darkMode 
+              ? 'bg-neutral-900/80 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
+            <h2 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Liste des Utilisateurs</h2>
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs font-bold text-gray-400 uppercase border-b border-gray-100">
+              <thead className={`text-xs font-bold uppercase border-b ${
+                darkMode 
+                  ? 'bg-neutral-800 text-neutral-400 border-neutral-700' 
+                  : 'bg-gray-50 text-gray-400 border-gray-100'
+              }`}>
                 <tr>
                   <th className="p-3">Nom & Prénom</th>
                   <th className="p-3">Email</th>
@@ -649,17 +796,17 @@ export default function AdminDashboard() {
                   <th className="p-3">Rôle</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className={`divide-y ${darkMode ? 'divide-neutral-700' : 'divide-gray-50'}`}>
                 {users.map((u) => (
                   <tr key={u.id}>
-                    <td className="p-3 font-bold text-[#0D1B3D]">{u.prenom} {u.nom}</td>
-                    <td className="p-3 text-gray-600">{u.email}</td>
-                    <td className="p-3 text-gray-500 font-mono text-xs">{u.telephone ?? "N/C"}</td>
+                    <td className={`p-3 font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>{u.prenom} {u.nom}</td>
+                    <td className={`p-3 ${darkMode ? 'text-neutral-300' : 'text-gray-600'}`}>{u.email}</td>
+                    <td className={`p-3 font-mono text-xs ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>{u.telephone ?? "N/C"}</td>
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                        u.role === "administrateur" ? "bg-purple-100 text-purple-700" :
-                        u.role === "secretaire" ? "bg-blue-100 text-blue-700" :
-                        "bg-gray-100 text-gray-700"
+                        u.role === "administrateur" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" :
+                        u.role === "secretaire" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
+                        "bg-gray-100 text-gray-700 dark:bg-neutral-800 dark:text-neutral-300"
                       }`}>
                         {u.role}
                       </span>
@@ -675,12 +822,20 @@ export default function AdminDashboard() {
       {/* MODALES */}
       {selectedSpecForDocs && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl border border-gray-100">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <h3 className="font-bold text-[#0D1B3D] text-base">Médecins en {selectedSpecForDocs.nom}</h3>
+          <div className={`rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl border ${
+            darkMode 
+              ? 'bg-neutral-900 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
+            <div className={`flex justify-between items-center border-b pb-3 ${darkMode ? 'border-neutral-700' : 'border-gray-100'}`}>
+              <h3 className={`font-bold text-base ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Médecins en {selectedSpecForDocs.nom}</h3>
               <button
                 onClick={() => setSelectedSpecForDocs(null)}
-                className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 transition flex items-center justify-center text-xs"
+                className={`w-8 h-8 rounded-full font-bold transition flex items-center justify-center text-xs ${
+                  darkMode 
+                    ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700' 
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
               >
                 ✕
               </button>
@@ -688,17 +843,21 @@ export default function AdminDashboard() {
 
             <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
               {doctors.filter((d) => d.speciality_id === selectedSpecForDocs.id).length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-6 font-medium">
+                <p className={`text-xs text-center py-6 font-medium ${darkMode ? 'text-neutral-500' : 'text-gray-400'}`}>
                   Aucun médecin n'est actuellement rattaché à cette spécialité.
                 </p>
               ) : (
                 doctors
                   .filter((d) => d.speciality_id === selectedSpecForDocs.id)
                   .map((doc) => (
-                    <div key={doc.id} className="p-3 bg-gray-50 rounded-xl flex justify-between items-center text-sm border border-gray-100">
-                      <span className="font-bold text-[#0D1B3D]">Dr. {doc.prenom} {doc.nom}</span>
+                    <div className={`p-3 rounded-xl flex justify-between items-center text-sm border ${
+                      darkMode 
+                        ? 'bg-neutral-800 border-neutral-700' 
+                        : 'bg-gray-50 border-gray-100'
+                    }`}>
+                      <span className={`font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Dr. {doc.prenom} {doc.nom}</span>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        doc.status === "actif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                        doc.status === "actif" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
                       }`}>
                         {doc.status}
                       </span>
@@ -709,7 +868,7 @@ export default function AdminDashboard() {
 
             <button
               onClick={() => setSelectedSpecForDocs(null)}
-              className="w-full py-2.5 bg-[#0D1B3D] text-white rounded-xl text-xs font-bold hover:bg-opacity-90 transition"
+              className="w-full py-2.5 bg-[#0D1B3D] dark:bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-opacity-90 dark:hover:bg-blue-700 transition"
             >
               Fermer
             </button>
@@ -719,26 +878,34 @@ export default function AdminDashboard() {
 
       {(confirmedDetails || loadingDetails) && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-xl border border-gray-100">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+          <div className={`rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-xl border ${
+            darkMode 
+              ? 'bg-neutral-900 border-neutral-700' 
+              : 'bg-white border-gray-100'
+          }`}>
+            <div className={`flex justify-between items-center border-b pb-3 ${darkMode ? 'border-neutral-700' : 'border-gray-100'}`}>
               <div>
-                <h3 className="font-bold text-[#0D1B3D] text-base">Détail des RDV Confirmés & Honorés</h3>
-                <p className="text-xs text-gray-400">Période : <span className="font-bold text-[#0D1B3D]">{period}</span></p>
+                <h3 className={`font-bold text-base ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>Détail des RDV Confirmés & Honorés</h3>
+                <p className={`text-xs ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>Période : <span className={`font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>{period}</span></p>
               </div>
               <button
                 onClick={() => setConfirmedDetails(null)}
-                className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 transition flex items-center justify-center text-xs"
+                className={`w-8 h-8 rounded-full font-bold transition flex items-center justify-center text-xs ${
+                  darkMode 
+                    ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700' 
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
               >
                 ✕
               </button>
             </div>
 
             {loadingDetails ? (
-              <p className="text-center py-8 text-sm text-gray-500 font-medium">Chargement des détails...</p>
+              <p className={`text-center py-8 text-sm font-medium ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>Chargement des détails...</p>
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-2">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50 font-bold text-gray-400 uppercase">
+                  <thead className={`font-bold uppercase ${darkMode ? 'text-neutral-400' : 'text-gray-400'}`}>
                     <tr>
                       <th className="p-3">Patient</th>
                       <th className="p-3">Médecin</th>
@@ -748,19 +915,19 @@ export default function AdminDashboard() {
                       <th className="p-3 text-right">Tarif</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className={`divide-y ${darkMode ? 'divide-neutral-700' : 'divide-gray-100'}`}>
                     {confirmedDetails?.map((app) => (
                       <tr key={app.id}>
-                        <td className="p-3 font-bold text-[#0D1B3D]">
+                        <td className={`p-3 font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
                           {app.patient ? `${app.patient.prenom} ${app.patient.nom}` : "N/C"}
                         </td>
-                        <td className="p-3 text-gray-600">Dr. {app.doctor?.prenom} {app.doctor?.nom}</td>
-                        <td className="p-3 text-gray-500">{app.speciality?.nom}</td>
+                        <td className={`p-3 ${darkMode ? 'text-neutral-300' : 'text-gray-600'}`}>Dr. {app.doctor?.prenom} {app.doctor?.nom}</td>
+                        <td className={`p-3 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>{app.speciality?.nom}</td>
                         <td className="p-3 font-mono">{app.appointment_date}</td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 rounded bg-green-100 text-green-700 font-bold">{app.status}</span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 font-bold">{app.status}</span>
                         </td>
-                        <td className="p-3 text-right font-mono font-bold text-[#2EAF5E]">
+                        <td className="p-3 text-right font-mono font-bold text-[#2EAF5E] dark:text-emerald-400">
                           {app.amount_paid?.toLocaleString()} FCFA
                         </td>
                       </tr>
@@ -772,7 +939,7 @@ export default function AdminDashboard() {
 
             <button
               onClick={() => setConfirmedDetails(null)}
-              className="w-full py-2.5 bg-[#0D1B3D] text-white rounded-xl text-xs font-bold hover:bg-opacity-90 transition"
+              className="w-full py-2.5 bg-[#0D1B3D] dark:bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-opacity-90 dark:hover:bg-blue-700 transition"
             >
               Fermer
             </button>

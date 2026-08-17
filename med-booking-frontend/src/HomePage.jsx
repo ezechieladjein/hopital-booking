@@ -1,6 +1,7 @@
+// src/HomePage.jsx
 import React from 'react';
 import { login, getKeycloak, clearStoredTokens } from './keycloak-init';
-import bgMedical from './assets/background-medical.jpeg';
+import { useTheme } from './context/ThemeContext';
 import { 
   Calendar, 
   Shield, 
@@ -12,6 +13,8 @@ import {
 } from 'lucide-react';
 
 export default function HomePage() {
+  const { darkMode } = useTheme();
+
   const specialties = [
     'Cardiologie',
     'Gynécologie',
@@ -39,7 +42,6 @@ export default function HomePage() {
 
   const handleRegister = (e) => {
     e.preventDefault();
-    // Efface uniquement les jetons sans faire sessionStorage.clear() pour préserver l'état de keycloak-js
     clearStoredTokens();
     const kc = getKeycloak();
     kc.register({
@@ -48,7 +50,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA] font-['Poppins']">
+    <div className={`min-h-screen font-['Poppins'] ${darkMode ? 'bg-neutral-950' : 'bg-[#F5F7FA]'}`}>
       {/* SECTION HERO */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
         <div 
@@ -57,7 +59,7 @@ export default function HomePage() {
             backgroundImage: `url('/src/assets/background-medical.jpg')`,
           }}
         />
-        <div className="absolute inset-0 bg-[#0D1B3D]/80" />
+        <div className={`absolute inset-0 ${darkMode ? 'bg-[#0D1B3D]/90' : 'bg-[#0D1B3D]/80'}`} />
         
         <div className="relative z-10 text-center px-4 max-w-5xl mx-auto">
           <div className="flex justify-center mb-6">
@@ -105,12 +107,12 @@ export default function HomePage() {
       </section>
 
       {/* SECTION SPÉCIALITÉS */}
-      <section className="py-16 px-4 bg-white">
+      <section className={`py-16 px-4 ${darkMode ? 'bg-neutral-900/80' : 'bg-white'}`}>
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-[#0D1B3D] mb-4">
+          <h2 className={`text-3xl font-bold text-center mb-4 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
             Spécialités médicales disponibles
           </h2>
-          <p className="text-center text-gray-500 mb-8">
+          <p className={`text-center mb-8 ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
             Consultez les professionnels de santé dans différentes spécialités
           </p>
           
@@ -118,7 +120,11 @@ export default function HomePage() {
             {specialties.map((spec, index) => (
               <span
                 key={index}
-                className="px-4 py-2 bg-[#F5F7FA] text-[#0D1B3D] rounded-full text-sm font-medium hover:bg-[#0D1B3D] hover:text-white transition cursor-pointer"
+                className={`px-4 py-2 rounded-full text-sm font-medium hover:bg-[#0D1B3D] hover:text-white transition cursor-pointer ${
+                  darkMode 
+                    ? 'bg-neutral-800 text-neutral-300' 
+                    : 'bg-[#F5F7FA] text-[#0D1B3D]'
+                }`}
               >
                 {spec}
               </span>
@@ -128,39 +134,57 @@ export default function HomePage() {
       </section>
 
       {/* SECTION AVANTAGES */}
-      <section className="py-16 px-4 bg-[#F5F7FA]">
+      <section className={`py-16 px-4 ${darkMode ? 'bg-neutral-950' : 'bg-[#F5F7FA]'}`}>
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-[#0D1B3D] mb-12">
+          <h2 className={`text-3xl font-bold text-center mb-12 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
             Pourquoi choisir MediGo ?
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
-              <div className="w-16 h-16 bg-[#2EAF5E]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Calendar className="w-8 h-8 text-[#2EAF5E]" />
+            <div className={`text-center p-6 rounded-2xl shadow-sm border ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
+              <div className="w-16 h-16 bg-[#2EAF5E]/10 dark:bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Calendar className="w-8 h-8 text-[#2EAF5E] dark:text-emerald-400" />
               </div>
-              <h3 className="text-lg font-bold text-[#0D1B3D] mb-2">Prise de RDV rapide</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className={`text-lg font-bold mb-2 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
+                Prise de RDV rapide
+              </h3>
+              <p className={`text-sm ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
                 Réservez votre consultation en ligne en quelques clics, 24h/24 et 7j/7.
               </p>
             </div>
 
-            <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
+            <div className={`text-center p-6 rounded-2xl shadow-sm border ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
               <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Shield className="w-8 h-8 text-blue-500" />
               </div>
-              <h3 className="text-lg font-bold text-[#0D1B3D] mb-2">100% sécurisé</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className={`text-lg font-bold mb-2 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
+                100% sécurisé
+              </h3>
+              <p className={`text-sm ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
                 Vos données sont protégées et vos paiements sont sécurisés via FedaPay.
               </p>
             </div>
 
-            <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
+            <div className={`text-center p-6 rounded-2xl shadow-sm border ${
+              darkMode 
+                ? 'bg-neutral-900/80 border-neutral-700' 
+                : 'bg-white border-gray-100'
+            }`}>
               <div className="w-16 h-16 bg-purple-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Clock className="w-8 h-8 text-purple-500" />
               </div>
-              <h3 className="text-lg font-bold text-[#0D1B3D] mb-2">Rappels automatiques</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className={`text-lg font-bold mb-2 ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>
+                Rappels automatiques
+              </h3>
+              <p className={`text-sm ${darkMode ? 'text-neutral-400' : 'text-gray-500'}`}>
                 Recevez un SMS ou un email de rappel 24h avant votre rendez-vous.
               </p>
             </div>
@@ -188,7 +212,7 @@ export default function HomePage() {
       </section>
 
       {/* FOOTER */}
-      <footer className="bg-[#0A1529] text-white/60 py-8 px-4 border-t border-white/5">
+      <footer className={`${darkMode ? 'bg-[#0A0F1A]' : 'bg-[#0A1529]'} text-white/60 py-8 px-4 border-t border-white/5`}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
           <div>
             <div className="flex items-center gap-2 mb-4">

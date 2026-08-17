@@ -1,6 +1,8 @@
+/* src/index.css */
 @import "tailwindcss";
 
-/* Animation Premium pour le Tunnel de Réservation */
+@variant dark (&:where(.dark, .dark *));
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -16,7 +18,14 @@
   animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Personnalisation claire de la barre de défilement */
+/* Transition fluide pour les changements de thème */
+* {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+/* Personnalisation de la barre de défilement - mode clair */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -33,6 +42,19 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(59, 130, 246, 0.5);
+}
+
+/* Personnalisation de la barre de défilement - mode sombre */
+.dark ::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.8);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(96, 165, 250, 0.5);
 }
 
 /* Style pour la page de connexion Keycloak */

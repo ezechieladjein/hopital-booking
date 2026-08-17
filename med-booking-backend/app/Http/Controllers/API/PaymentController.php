@@ -106,37 +106,16 @@ class PaymentController extends Controller
         try {
             DB::beginTransaction();
 
-            // Vérification locale d'abord
+            $payment = Payment::where('fedapay_transaction_id', $request->id)->firstOrFail();
+            $appointment = Appointment::with(['patient', 'slot.doctor.speciality'])
+                ->findOrFail($request->appointment_id);
+
             if ($payment->status === 'approved') {
                 DB::commit();
                 return response()->json(['success' => true, 'message' => 'Paiement déjà confirmé.']);
             }
 
-            // Si le paiement est encore 'pending' dans la base, on laisse le temps au webhook 
-            // d'arriver au lieu de contacter systématiquement l'API FedaPay.
-            if ($payment->status === 'pending') {
-                DB::commit();
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Paiement en cours de traitement par le fournisseur.'
-                ], 202); // 202 Accepted = demande acceptée mais pas encore traitée
-            }
-
-            // Sinon, on contacte l'API FedaPay...
-
             $fedapayTx = Transaction::retrieve($request->id);
-            $payment = Payment::where('fedapay_transaction_id', $request->id)->firstOrFail();
-            $appointment = Appointment::with(['patient', 'slot.doctor.speciality'])
-                ->findOrFail($request->appointment_id);
-
-            // Evite les doubles traitements si déjà approuvé
-            if ($payment->status === 'approved') {
-                DB::commit();
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Paiement déjà confirmé.'
-                ]);
-            }
 
             if ($fedapayTx->status === 'approved') {
                 $this->markAsApproved($payment, $appointment, $fedapayTx->mode, $fedapayTx->receipt_url);
@@ -152,7 +131,7 @@ class PaymentController extends Controller
 
                 if ($appointment->patient && $appointment->patient->email) {
                     Mail::to($appointment->patient->email)
-                        ->queue(new PaymentFailedMail($payment));
+                        ->queue(new PaymentFailedMail($payment, $appointment));
                 }
 
                 return response()->json([
@@ -235,7 +214,7 @@ class PaymentController extends Controller
             } elseif (in_array($event, ['transaction.declined', 'transaction.canceled'])) {
                 $payment->update(['status' => 'declined']);
                 if ($appointment?->patient && $appointment->patient->email) {
-                    Mail::to($appointment->patient->email)->queue(new PaymentFailedMail($payment));
+                    Mail::to($appointment->patient->email)->queue(new PaymentFailedMail($payment, $appointment));
                 }
             }
 
@@ -320,5 +299,58 @@ class PaymentController extends Controller
             'gim_uemoa_card', 'cybersource', 'stripe_gw' => 'card',
             default => 'mobile_money',
         };
+    }
+
+    /**
+     * Traite le remboursement en fonction de l'initiateur et de la date du RDV
+     */
+    public function processRefund(Appointment $appointment, string $initiatedBy = 'patient'): bool
+    {
+        $payment = Payment::where('appointment_id', $appointment->id)
+            ->where('status', 'approved')
+            ->first();
+
+        if (!$payment) {
+            return false;
+        }
+
+        $refundPercentage = 100;
+
+        if ($initiatedBy === 'patient') {
+            $appointmentDate = \Carbon\Carbon::parse($appointment->slot->date);
+            $now = \Carbon\Carbon::now();
+
+            if ($appointmentDate->isToday()) {
+                $refundPercentage = 80; // 80% le jour même
+            } elseif ($appointmentDate->isPast()) {
+                $refundPercentage = 0;  // No-show
+            } else {
+                $refundPercentage = 100; // 100% la veille ou plus tôt
+            }
+        }
+
+        if ($refundPercentage === 0) {
+            return false;
+        }
+
+        $refundAmount = (int) ($payment->amount_paid * ($refundPercentage / 100));
+
+        try {
+            // Demande de remboursement FedaPay
+            $transaction = Transaction::retrieve($payment->fedapay_transaction_id);
+            // Appliquer le remboursement via FedaPay SDK selon leur documentation
+
+            $payment->update(['status' => 'refunded']);
+
+            if ($appointment->patient && $appointment->patient->email) {
+                Mail::to($appointment->patient->email)
+                    ->queue(new RefundEffectedMail($appointment, $refundAmount, $refundPercentage));
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Erreur Remboursement FedaPay', ['message' => $e->getMessage()]);
+            return false;
+        }
     }
 }

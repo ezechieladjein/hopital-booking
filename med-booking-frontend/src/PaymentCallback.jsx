@@ -1,112 +1,138 @@
+// src/PaymentCallback.jsx
 import React, { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { apiFetch } from './api';
+import { apiFetch } from "./api";
+import { useTheme } from './context/ThemeContext';
 
 export default function PaymentCallback() {
+  const { darkMode } = useTheme();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
+
   const [statusMessage, setStatusMessage] = useState("Vérification du paiement en cours...");
   const [isError, setIsError] = useState(false);
-  const [transactionId, setTransactionId] = useState(null);
-  const [appointmentId, setAppointmentId] = useState(null);
+  const [appointmentDetails, setAppointmentDetails] = useState(null);
 
   useEffect(() => {
     const apptId = searchParams.get("appointment_id");
     const txId = searchParams.get("id");
-    
+
     if (!apptId || !txId) {
       setStatusMessage("Informations de paiement manquantes.");
       setIsError(true);
       return;
     }
 
-    setAppointmentId(apptId);
-    setTransactionId(txId);
-
-    let isMounted = true;
-    let retryCount = 0;
-    const MAX_RETRIES = 12; // On attend max 60 secondes (12 * 5s)
-
-    const verifyPaymentLoop = async () => {
-      if (retryCount >= MAX_RETRIES) {
-        if (isMounted) {
-          setStatusMessage("Le serveur met trop de temps à confirmer. Vérifiez vos rendez-vous.");
-          setIsError(true);
-        }
-        return;
-      }
-
+    const verifyPayment = async () => {
       try {
-        // On demande à Laravel s'il a bien reçu le webhook et traité le paiement
         const verifyRes = await apiFetch("/payments/verify", {
           method: "POST",
-          body: JSON.stringify({
-            appointment_id: apptId,
-            id: txId,
-          }),
+          body: JSON.stringify({ appointment_id: apptId, id: txId }),
         });
 
         if (verifyRes.success) {
-          // Succès ! On redirige l'utilisateur vers son dashboard
-          if (isMounted) {
-            setStatusMessage("Paiement validé avec succès !");
-            setTimeout(() => navigate("/patient/appointments"), 1500);
-          }
-          return;
+          setStatusMessage("Paiement validé avec succès !");
+          setAppointmentDetails(verifyRes.appointment || verifyRes.data);
         } else {
-          // Si c'est un échec définitif (ex: declined), on arrête et on affiche l'erreur
-          if (verifyRes.message?.includes('declined') || verifyRes.message?.includes('échoué')) {
-            if (isMounted) {
-              setStatusMessage(verifyRes.message);
-              setIsError(true);
-            }
-            return;
-          }
-          
-          // Si c'est juste "en attente", on relance la vérification après 5 secondes
-          retryCount++;
-          setTimeout(verifyPaymentLoop, 5000);
+          setStatusMessage(verifyRes.message || "Paiement non confirmé.");
+          setIsError(true);
         }
       } catch (err) {
-        console.error("Erreur lors de la vérification :", err);
-        // En cas d'erreur réseau, on réessaie aussi
-        retryCount++;
-        setTimeout(verifyPaymentLoop, 5000);
+        setStatusMessage("Erreur réseau lors de la validation.");
+        setIsError(true);
       }
     };
 
-    verifyPaymentLoop();
-
-    return () => {
-      isMounted = false; // Cleanup pour éviter les fuites mémoire si l'utilisateur quitte la page
-    };
-  }, [searchParams, navigate]);
+    verifyPayment();
+  }, [searchParams]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 font-['Poppins'] p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-md w-full text-center">
+    <div className={`min-h-screen flex items-center justify-center p-4 font-['Poppins'] ${
+      darkMode ? 'bg-[#0B0F17]' : 'bg-gray-50'
+    }`}>
+      <div className={`p-8 rounded-2xl shadow-sm border max-w-xl w-full text-center space-y-6 ${
+        darkMode 
+          ? 'bg-[#1E293B] border-gray-700' 
+          : 'bg-white border-gray-100'
+      }`}>
         {!isError ? (
-          <div className="space-y-4">
-            <div className="w-12 h-12 border-4 border-[#0D1B3D] border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <h2 className="text-lg font-bold text-[#0D1B3D]">Confirmation en cours</h2>
-            <p className="text-sm text-gray-600">{statusMessage}</p>
-            <p className="text-xs text-gray-400">
-              Transaction #{transactionId}
-            </p>
-          </div>
+          appointmentDetails ? (
+            <div className="space-y-6 text-left">
+              <div id="receipt-pdf" className={`p-6 border rounded-2xl space-y-4 ${
+                darkMode ? 'bg-[#111827] border-gray-700' : 'bg-white'
+              }`}>
+                <div className={`flex justify-between border-b pb-3 ${darkMode ? 'border-gray-700' : ''}`}>
+                  <div>
+                    <h2 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-[#0D1B3D]'}`}>MEDIGO ATTESTATION</h2>
+                    <p className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Reçu de Confirmation de Rendez-Vous</p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full h-fit border border-emerald-200">
+                    PAYÉ (CONFIRMÉ)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <p className={`text-[10px] uppercase font-bold ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Patient</p>
+                    <p className={`font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+                      {appointmentDetails.patient?.nom} {appointmentDetails.patient?.prenom}
+                    </p>
+                  </div>
+                  <div>
+                    <p className={`text-[10px] uppercase font-bold ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Médecin & Spécialité</p>
+                    <p className={`font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Dr. {appointmentDetails.slot?.doctor?.nom}</p>
+                    <p className={`text-[10px] ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{appointmentDetails.slot?.doctor?.speciality?.nom}</p>
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-xl grid grid-cols-2 gap-2 text-xs border ${
+                  darkMode ? 'bg-[#111827] border-gray-700' : 'bg-gray-50'
+                }`}>
+                  <div>
+                    <p className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Date Consultation</p>
+                    <p className={`font-bold ${darkMode ? 'text-white' : ''}`}>{appointmentDetails.slot?.date_consultation}</p>
+                  </div>
+                  <div>
+                    <p className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Heure du RDV</p>
+                    <p className={`font-bold ${darkMode ? 'text-white' : ''}`}>{appointmentDetails.slot?.start_time?.substring(0, 5)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 bg-[#0D1B3D] text-white text-xs font-bold py-2.5 rounded-xl shadow-sm"
+                >
+                  Télécharger le Reçu PDF
+                </button>
+                <button
+                  onClick={() => navigate("/patient/appointments")}
+                  className={`flex-1 text-xs font-bold py-2.5 rounded-xl ${
+                    darkMode 
+                      ? 'bg-[#111827] text-gray-300' 
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  Voir mes rendez-vous
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 py-8">
+              <div className="w-10 h-10 border-4 border-[#0D1B3D] border-t-transparent rounded-full animate-spin mx-auto"></div>
+              <p className={`text-xs font-bold ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{statusMessage}</p>
+            </div>
+          )
         ) : (
           <div className="space-y-4">
-            <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto text-xl font-bold">
-              ✕
-            </div>
-            <h2 className="text-lg font-bold text-red-600">Paiement non confirmé</h2>
-            <p className="text-sm text-gray-600">{statusMessage}</p>
+            <h2 className="text-lg font-bold text-red-600">Problème de Paiement</h2>
+            <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{statusMessage}</p>
             <button
               onClick={() => navigate("/patient/appointments")}
-              className="mt-4 bg-[#0D1B3D] text-white text-xs font-bold px-5 py-2.5 rounded-xl"
+              className="bg-[#0D1B3D] text-white text-xs font-bold px-5 py-2.5 rounded-xl"
             >
-              Voir mes rendez-vous
+              Retour
             </button>
           </div>
         )}

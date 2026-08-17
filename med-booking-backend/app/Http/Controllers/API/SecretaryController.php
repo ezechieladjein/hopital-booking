@@ -4,19 +4,29 @@ namespace App\Http\Controllers\API;
 
 use Carbon\Carbon;
 use App\Http\Controllers\Controller;
+use FedaPay\FedaPay;
+use FedaPay\Transaction;
 use App\Models\Appointment;
 use App\Models\Doctor;
 use App\Models\DoctorAvailability;
 use App\Models\DoctorUnavailability;
+use App\Models\Notification;
 use App\Models\Slot;
+use App\Models\User;
+use App\Models\Payment;
+use App\Models\Speciality;
 use App\Services\SlotGeneratorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use App\Mail\AppointmentCreatedMail;
+use App\Mail\AppointmentUpdatedMail;
 use App\Mail\AppointmentCancelledMail;
 use App\Mail\AppointmentRefusedMail;
 use App\Mail\InsuranceValidatedMail;
+use App\Mail\PaymentLinkMail;
 
 class SecretaryController extends Controller
 {
@@ -26,7 +36,6 @@ class SecretaryController extends Controller
     public function index(): JsonResponse
     {
         try {
-            // Ajout de 'slot.doctor' pour récupérer le nom/prénom du médecin
             $appointments = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
                 ->orderBy('created_at', 'desc')
                 ->get();
@@ -44,6 +53,29 @@ class SecretaryController extends Controller
     }
 
     /**
+     * Récupérer la liste complète des patients
+     */
+    public function getPatientsList(): JsonResponse
+    {
+        try {
+            $patients = User::where('role', 'patient')
+                ->orderBy('nom')
+                ->orderBy('prenom')
+                ->get(['id', 'nom', 'prenom', 'telephone', 'email', 'sexe', 'age', 'created_at']);
+
+            return response()->json([
+                'success' => true,
+                'data' => $patients
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * 2. Validation / Acceptation de l'assurance.
      */
     public function validateInsurance(Request $request): JsonResponse
@@ -55,7 +87,6 @@ class SecretaryController extends Controller
 
         DB::beginTransaction();
         try {
-            // Chargement explicite du patient et des relations du slot pour le mail
             $appointment = Appointment::with(['patient', 'slot.doctor', 'slot.doctor.speciality'])
                 ->findOrFail($request->input('appointment_id'));
 
@@ -63,7 +94,6 @@ class SecretaryController extends Controller
             $basePrice = $appointment->base_price;
             $amountToPay = $basePrice * ((100 - $coverageRate) / 100);
 
-            // Si couverture 100%, pas besoin de paiement -> Statut CONFIRME direct
             $newStatus = ($coverageRate === 100) ? 'CONFIRME' : 'EN_ATTENTE_PAIEMENT';
 
             $appointment->update([
@@ -82,7 +112,6 @@ class SecretaryController extends Controller
 
             DB::commit();
 
-            // 📩 ENVOI EMAIL : Assurance validée
             Mail::to($appointment->patient->email)->queue(new InsuranceValidatedMail($appointment));
 
             return response()->json([
@@ -109,7 +138,6 @@ class SecretaryController extends Controller
         ]);
 
         try {
-            // Chargement de la relation 'patient' pour l'envoi du mail
             $appointment = Appointment::with(['patient', 'slot.doctor'])
                 ->findOrFail($request->input('appointment_id'));
 
@@ -120,7 +148,6 @@ class SecretaryController extends Controller
                 'cancellation_reason'     => 'Assurance refusée : ' . $request->input('reason'),
             ]);
 
-            // ENVOI EMAIL : Assurance refusée
             Mail::to($appointment->patient->email)->queue(new AppointmentRefusedMail($appointment));
 
             return response()->json([
@@ -143,11 +170,9 @@ class SecretaryController extends Controller
         ]);
 
         try {
-            // Chargement de l'appointment avec son slot
             $appointment = Appointment::with('slot')->findOrFail($id);
             $newStatus = $request->input('status');
 
-            // Vérification temporelle pour les statuts TERMINE et ABSENT
             if (in_array($newStatus, ['TERMINE', 'ABSENT'])) {
                 if (!$appointment->slot) {
                     return response()->json([
@@ -156,12 +181,10 @@ class SecretaryController extends Controller
                     ], 400);
                 }
 
-                // Reconstruction de la date et de l'heure de début du créneau
                 $slotStartDatetime = Carbon::parse(
                     $appointment->slot->date_consultation . ' ' . $appointment->slot->start_time
                 );
 
-                // Si la date actuelle est antérieure au début du rendez-vous
                 if (now()->lt($slotStartDatetime)) {
                     return response()->json([
                         'success' => false,
@@ -234,32 +257,22 @@ class SecretaryController extends Controller
                 if ($isFullDay) {
                     $startDatetime = "{$date} 00:00:00";
                     $endDatetime   = "{$date} 23:59:59";
-
-                    $slotsToBlock = Slot::where('doctor_id', $doctorId)
+                    $slotsToBlock  = Slot::where('doctor_id', $doctorId)
                         ->where('date_consultation', $date)
                         ->get();
                 } else {
                     $slotsToBlock = Slot::whereIn('id', $request->input('slot_ids'))->get();
-
                     if ($slotsToBlock->isEmpty()) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Aucun créneau valide sélectionné.'
-                        ], 400);
+                        return response()->json(['success' => false, 'message' => 'Aucun créneau valide sélectionné.'], 400);
                     }
-
                     $minTime = $slotsToBlock->min('start_time');
                     $maxTime = $slotsToBlock->max('end_time');
-
                     $startDatetime = "{$date} {$minTime}";
-                    // Carbon gère proprement le format et l'ajout de la seconde
                     $endDatetime   = Carbon::parse("{$date} {$maxTime}")->addSecond()->toDateTimeString();
                 }
 
-                // Gestion propre de l'auteur de l'action
                 $createdBy = auth()->id() ?? \App\Models\User::first()?->id ?? 1;
 
-                // 1. Création du registre d'indisponibilité
                 $unavailability = DoctorUnavailability::create([
                     'doctor_id'      => $doctorId,
                     'start_datetime' => $startDatetime,
@@ -274,47 +287,73 @@ class SecretaryController extends Controller
                 if ($slotsToBlock->isNotEmpty()) {
                     $slotIds = $slotsToBlock->pluck('id');
 
-                    // 2. Marquer les créneaux comme indisponibles
-                    Slot::whereIn('id', $slotIds)->update([
-                        'status'       => 'Indisponible',
-                    ]);
+                    Slot::whereIn('id', $slotIds)->update(['status' => 'Indisponible']);
 
-                    // 3. Traitement des rendez-vous déjà réservés sur ces créneaux
-                    $impactedAppointments = Appointment::with(['patient', 'slot.doctor'])
+                    $impactedAppointments = Appointment::with(['patient', 'slot.doctor', 'payments'])
                         ->whereIn('slot_id', $slotIds)
                         ->whereNotIn('status', ['ANNULE_PATIENT', 'ANNULE_HOPITAL', 'TERMINE'])
                         ->get();
 
-                    if ($impactedAppointments->isNotEmpty()) {
-                        Appointment::whereIn('id', $impactedAppointments->pluck('id'))
-                            ->update([
-                                'status'              => 'ANNULE_HOPITAL',
-                                'cancellation_reason' => $request->input('reason', 'Absence / Urgence médicale')
-                            ]);
+                    foreach ($impactedAppointments as $appointment) {
+                        $cancellationReason = $request->input('reason', 'Absence / Urgence médicale du médecin');
 
-                        // Notification e-mail après commit de la transaction
-                        DB::afterCommit(function () use ($impactedAppointments) {
-                            foreach ($impactedAppointments as $appointment) {
-                                if ($appointment->patient?->email) {
-                                    Mail::to($appointment->patient->email)
-                                        ->queue(new AppointmentCancelledMail($appointment));
+                        if ($appointment->status === 'CONFIRME') {
+                            $approvedPayment = $appointment->payments()->where('status', 'approved')->first();
+                            if ($approvedPayment) {
+                                try {
+                                    FedaPay::setApiKey(config('services.fedapay.secret'));
+                                    FedaPay::setEnvironment(config('services.fedapay.environment', 'sandbox'));
+
+                                    $transaction = Transaction::retrieve($approvedPayment->fedapay_transaction_id);
+                                    $transaction->refund();
+
+                                    $approvedPayment->update([
+                                        'status' => 'refunded',
+                                        'refunded_amount' => $approvedPayment->amount_paid
+                                    ]);
+
+                                    $cancellationReason .= ' (Remboursement FedaPay effectué)';
+                                } catch (\Exception $e) {
+                                    Log::error("Erreur remboursement FedaPay RDV #{$appointment->id}: " . $e->getMessage());
+                                    $cancellationReason .= ' (Échec du remboursement automatique FedaPay)';
                                 }
                             }
-                        });
+                        }
+
+                        $appointment->update([
+                            'status' => 'ANNULE_HOPITAL',
+                            'cancellation_reason' => $cancellationReason
+                        ]);
+
+                        if ($appointment->patient?->keycloak_uuid) {
+                            Notification::create([
+                                'user_uuid' => $appointment->patient->keycloak_uuid,
+                                'title' => 'Rendez-vous Annulé par l\'Hôpital',
+                                'message' => "Votre RDV du {$appointment->slot->date_consultation} a été annulé pour cause d'absence du médecin. " .
+                                    ($appointment->status === 'CONFIRME' ? "Un remboursement a été initié." : ""),
+                                'type' => 'alert',
+                                'read' => false
+                            ]);
+                        }
                     }
+
+                    DB::afterCommit(function () use ($impactedAppointments) {
+                        foreach ($impactedAppointments as $appointment) {
+                            if ($appointment->patient?->email) {
+                                Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
+                            }
+                        }
+                    });
                 }
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Blocage effectué avec succès.',
+                    'message' => 'Blocage effectué, remboursements traités et notifications envoyées.',
                     'data'    => $unavailability
                 ], 200);
             });
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Erreur lors du blocage : ' . $e->getMessage()
-            ], 500);
+            return response()->json(['success' => false, 'message' => 'Erreur lors du blocage : ' . $e->getMessage()], 500);
         }
     }
 
@@ -334,20 +373,17 @@ class SecretaryController extends Controller
                     ], 400);
                 }
 
-                // 1. Marquer l'indisponibilité comme annulée
                 $unavailability->update([
                     'status'       => 'ANNULE',
                     'cancelled_by' => auth()->id() ?? \App\Models\User::first()?->id ?? 1,
                     'cancelled_at' => now(),
                 ]);
 
-                // 2. Extraire la plage exacte à débloquer
                 $startDate = Carbon::parse($unavailability->start_datetime)->toDateString();
                 $endDate   = Carbon::parse($unavailability->end_datetime)->toDateString();
                 $startTime = Carbon::parse($unavailability->start_datetime)->toTimeString();
                 $endTime   = Carbon::parse($unavailability->end_datetime)->toTimeString();
 
-                // 3. Débloquer UNIQUEMENT les créneaux de cet intervalle
                 $query = Slot::where('doctor_id', $unavailability->doctor_id)
                     ->whereBetween('date_consultation', [$startDate, $endDate])
                     ->where('status', 'Indisponible');
@@ -451,6 +487,470 @@ class SecretaryController extends Controller
             ], 200);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * 12. Recherche ou Création Rapide d'un Patient (Présentiel / Appel).
+     */
+    public function findOrCreatePatient(Request $request): JsonResponse
+    {
+        $request->validate([
+            'telephone' => 'required|string|max:50',
+            'nom'       => 'required|string|max255',
+            'prenom'    => 'required|string|max:255',
+            'email'     => 'nullable|email|max:255',
+            'sexe'      => 'nullable|in:M,F',
+            'age'       => 'nullable|integer|min:0|max:120',
+        ]);
+
+        try {
+            $telephone = $request->input('telephone');
+            $email = $request->input('email');
+
+            $user = User::where('telephone', $telephone)->first();
+
+            if (!$user && $email) {
+                $user = User::where('email', $email)->first();
+            }
+
+            if ($user) {
+                $user->update(array_filter([
+                    'nom'       => $request->input('nom'),
+                    'prenom'    => $request->input('prenom'),
+                    'email'     => $email ?: $user->email,
+                    'telephone' => $telephone,
+                    'sexe'      => $request->input('sexe') ?: $user->sexe,
+                    'age'       => $request->input('age') ?: $user->age,
+                ]));
+            } else {
+                $user = User::create([
+                    'keycloak_uuid' => 'sec-patient-' . uniqid(),
+                    'nom'           => $request->input('nom'),
+                    'prenom'        => $request->input('prenom'),
+                    'email'         => $email ?: 'patient-' . time() . '@hopital.local',
+                    'telephone'     => $telephone,
+                    'sexe'          => $request->input('sexe'),
+                    'age'           => $request->input('age'),
+                    'role'          => 'patient',
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Patient identifié avec succès.',
+                'data'    => $user
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * 13. Prise de rendez-vous assistée par la Secrétaire + Paiement FedaPay optionnel.
+     */
+    public function createAssistedAppointment(Request $request): JsonResponse
+    {
+        $request->validate([
+            'patient_id'              => 'required|exists:users,id',
+            'slot_id'                 => 'required|exists:slots,id',
+            'has_insurance'           => 'nullable|boolean',
+            'insurance_name'          => 'nullable|string|max:255',
+            'insurance_policy_number' => 'nullable|string|max:255',
+            'insurance_coverage_rate' => 'nullable|integer|min:0|max:100',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $patient = User::findOrFail($request->input('patient_id'));
+            $slot = Slot::lockForUpdate()->with('doctor.speciality')->findOrFail($request->input('slot_id'));
+
+            if ($slot->status !== 'Disponible') {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce créneau n\'est plus disponible.'
+                ], 422);
+            }
+
+            $hasInsurance = filter_var($request->input('has_insurance'), FILTER_VALIDATE_BOOLEAN);
+            $coverageRate = $hasInsurance ? ((int) $request->input('insurance_coverage_rate', 0)) : 0;
+            $basePrice = $slot->doctor->speciality->tarif ?? 25000;
+            $amountToPay = (int) ($basePrice * ((100 - $coverageRate) / 100));
+
+            $documentPath = null;
+
+            $initialStatus = 'EN_ATTENTE_PAIEMENT';
+            if ($hasInsurance && $coverageRate === 0) {
+                $initialStatus = 'EN_ATTENTE_VALIDATION';
+            } elseif ($amountToPay === 0) {
+                $initialStatus = 'CONFIRME';
+            }
+
+            // 🔴 CORRECTION : Récupérer l'utilisateur depuis le middleware
+            $secretary = $request->user() ?? $request->attributes->get('user');
+            $secretaryId = $secretary ? $secretary->id : null;
+
+            // Fallback : récupérer via l'email du token Keycloak
+            if (!$secretaryId) {
+                $keycloakUser = $request->attributes->get('keycloak_user');
+                if ($keycloakUser && isset($keycloakUser['email'])) {
+                    $user = User::where('email', $keycloakUser['email'])->first();
+                    if ($user) {
+                        $secretaryId = $user->id;
+                    }
+                }
+            }
+
+            // Dernier fallback : récupérer le premier secrétaire
+            if (!$secretaryId) {
+                $secretaryId = User::where('role', 'secretaire')->orWhere('role', 'secretary')->first()?->id ?? 1;
+            }
+
+            $appointment = Appointment::create([
+                'patient_id'              => $patient->id,
+                'slot_id'                 => $slot->id,
+                'status'                  => $initialStatus,
+                'has_insurance'           => $hasInsurance ? 1 : 0,
+                'insurance_name'          => $hasInsurance ? $request->input('insurance_name') : null,
+                'insurance_policy_number' => $hasInsurance ? $request->input('insurance_policy_number') : null,
+                'insurance_document_path' => $documentPath,
+                'insurance_coverage_rate' => $coverageRate,
+                'base_price'              => $basePrice,
+                'amount_to_pay'           => $amountToPay,
+                'created_by'              => $secretaryId,
+            ]);
+
+            $slot->update([
+                'status'         => $initialStatus === 'CONFIRME' ? 'Occupé' : 'Réservé temporairement',
+                'is_available'   => false,
+                'reserved_until' => $initialStatus === 'CONFIRME' ? null : Carbon::now()->addHours(24),
+            ]);
+
+            DB::commit();
+
+            if ($patient->email && filter_var($patient->email, FILTER_VALIDATE_EMAIL)) {
+                Mail::to($patient->email)->queue(new AppointmentCreatedMail($appointment));
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Rendez-vous créé avec succès.',
+                'data'    => [
+                    'appointment' => $appointment->load(['patient', 'slot.doctor.speciality']),
+                    'amount_to_pay' => $amountToPay,
+                    'appointment_id' => $appointment->id,
+                    'status' => $initialStatus,
+                    'created_by' => $secretaryId,
+                ]
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * 13b. Initier un paiement FedaPay pour un rendez-vous créé par le secrétariat.
+     * POST /api/secretary/payments/initiate
+     */
+    public function initiateSecretaryPayment(Request $request): JsonResponse
+    {
+        $request->validate([
+            'appointment_id' => 'required|exists:appointments,id',
+        ]);
+
+        try {
+            $appointment = Appointment::with(['patient', 'slot.doctor'])->findOrFail($request->appointment_id);
+
+            if ($appointment->amount_to_pay <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Le reste à charge pour ce rendez-vous est déjà nul.'
+                ], 400);
+            }
+
+            $origin = $request->header('Origin') ?? $request->header('Referer');
+            $frontendUrl = rtrim($origin ?? env('FRONTEND_URL', 'http://localhost:5173'), '/');
+
+            // Créer la transaction sur FedaPay
+            $transaction = Transaction::create([
+                'description' => "Règlement consultation Medigo - RDV #{$appointment->id}",
+                'amount' => (int) $appointment->amount_to_pay,
+                'currency' => ['iso' => 'XOF'],
+                'callback_url' => "{$frontendUrl}/payment-callback?appointment_id={$appointment->id}",
+                'customer' => [
+                    'firstname' => $appointment->patient->prenom ?? 'Patient',
+                    'lastname' => $appointment->patient->nom ?? 'Medigo',
+                    'email' => $appointment->patient->email ?? 'patient@medigo.bj',
+                ]
+            ]);
+
+            Payment::create([
+                'appointment_id' => $appointment->id,
+                'fedapay_transaction_id' => $transaction->id,
+                'payment_method' => 'mobile_money',
+                'amount_paid' => (int) $appointment->amount_to_pay,
+                'status' => 'pending',
+            ]);
+
+            $token = $transaction->generateToken();
+
+            // Envoyer l'email avec le lien de paiement
+            if ($appointment->patient && $appointment->patient->email) {
+                Mail::to($appointment->patient->email)
+                    ->queue(new PaymentLinkMail($appointment, $token->url));
+            }
+
+            return response()->json([
+                'success' => true,
+                'payment_url' => $token->url,
+                'transaction_id' => $transaction->id
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur FedaPay : ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * 14. Modification assistée d'un rendez-vous sous demande du patient.
+     */
+    public function rescheduleAssistedAppointment(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'slot_id'                 => 'required|exists:slots,id',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $appointment = Appointment::with(['patient', 'slot.doctor.speciality'])->findOrFail($id);
+
+            $forbiddenStatuses = ['TERMINE', 'ABSENT', 'ANNULE_PATIENT', 'ANNULE_HOPITAL', 'EXPIRE'];
+            if (in_array($appointment->status, $forbiddenStatuses)) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce rendez-vous ne peut plus être modifié (statut : ' . $appointment->status . ').'
+                ], 422);
+            }
+
+            $newSlot = Slot::lockForUpdate()->with('doctor.speciality')->findOrFail($request->input('slot_id'));
+
+            if ($newSlot->id !== $appointment->slot_id && $newSlot->status !== 'Disponible') {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Le nouveau créneau n\'est pas disponible.'], 422);
+            }
+
+            if ($appointment->slot && $appointment->slot_id !== $newSlot->id) {
+                $slotStart = Carbon::parse("{$appointment->slot->date_consultation} {$appointment->slot->start_time}");
+                $isFuture = $slotStart->isFuture();
+                $appointment->slot->update([
+                    'status'         => $isFuture ? 'Disponible' : 'Indisponible',
+                    'is_available'   => $isFuture,
+                    'reserved_until' => null,
+                ]);
+            }
+
+            $isConfirmed = $appointment->status === 'CONFIRME';
+            $newSlot->update([
+                'status'         => $isConfirmed ? 'Occupé' : 'Réservé temporairement',
+                'is_available'   => false,
+                'reserved_until' => $isConfirmed ? null : Carbon::now()->addHours(24),
+            ]);
+
+            $hasInsurance = filter_var($appointment->has_insurance, FILTER_VALIDATE_BOOLEAN);
+            $newBasePrice = $newSlot->doctor->speciality->tarif ?? $appointment->base_price;
+            $coverageRate = $appointment->insurance_coverage_rate ?? 0;
+            $newAmountToPay = (int) ($newBasePrice * ((100 - $coverageRate) / 100));
+
+            $appointment->update([
+                'slot_id'                 => $newSlot->id,
+                'base_price'              => $newBasePrice,
+                'amount_to_pay'           => $newAmountToPay,
+            ]);
+
+            DB::commit();
+
+            if ($appointment->patient?->email) {
+                Mail::to($appointment->patient->email)->queue(new AppointmentUpdatedMail($appointment));
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Rendez-vous réorganisé avec succès.',
+                'data'    => $appointment->load(['patient', 'slot.doctor.speciality'])
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * 15. Annulation d'un rendez-vous à la demande du patient avec remboursement optionnel.
+     */
+    public function cancelAssistedAppointment(Request $request, int $id): JsonResponse
+    {
+        $reason = $request->input('reason', 'Annulé en guichet / par téléphone');
+
+        DB::beginTransaction();
+        try {
+            $appointment = Appointment::with(['patient', 'slot', 'payments'])->findOrFail($id);
+
+            $nonCancellableStatuses = ['TERMINE', 'ABSENT', 'ANNULE_PATIENT', 'ANNULE_HOPITAL', 'EXPIRE'];
+            if (in_array($appointment->status, $nonCancellableStatuses)) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce rendez-vous ne peut plus être annulé.'
+                ], 422);
+            }
+
+            if ($appointment->slot) {
+                $slotStart = Carbon::parse("{$appointment->slot->date_consultation} {$appointment->slot->start_time}");
+                $isFuture = $slotStart->isFuture();
+                $appointment->slot->update([
+                    'status'         => $isFuture ? 'Disponible' : 'Indisponible',
+                    'is_available'   => $isFuture,
+                    'reserved_until' => null,
+                ]);
+            }
+
+            if ($appointment->status === 'CONFIRME') {
+                $approvedPayment = $appointment->payments()->where('status', 'approved')->first();
+                if ($approvedPayment) {
+                    try {
+                        FedaPay::setApiKey(config('services.fedapay.secret'));
+                        FedaPay::setEnvironment(config('services.fedapay.environment', 'sandbox'));
+
+                        $transaction = Transaction::retrieve($approvedPayment->fedapay_transaction_id);
+                        $transaction->refund();
+
+                        $approvedPayment->update([
+                            'status'          => 'refunded',
+                            'refunded_amount' => $approvedPayment->amount_paid,
+                        ]);
+                        $reason .= ' (Remboursement FedaPay effectué)';
+                    } catch (\Exception $e) {
+                        Log::error("Échec remboursement RDV #{$appointment->id}: " . $e->getMessage());
+                    }
+                }
+            }
+
+            $appointment->update([
+                'status'              => 'ANNULE_PATIENT',
+                'cancellation_reason' => $reason,
+            ]);
+
+            DB::commit();
+
+            if ($appointment->patient?->email) {
+                Mail::to($appointment->patient->email)->queue(new AppointmentCancelledMail($appointment));
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Rendez-vous annulé avec succès.',
+                'data'    => $appointment
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * 16. Historique des rendez-vous saisis par le secrétariat.
+     */
+    public function getSecretaryBookingHistory(): JsonResponse
+    {
+        try {
+            // 🔴 CORRECTION : Récupérer l'utilisateur depuis le middleware
+            $secretary = request()->user() ?? request()->attributes->get('user');
+            $secretaryId = $secretary ? $secretary->id : null;
+
+            // Fallback : récupérer via l'email du token Keycloak
+            if (!$secretaryId) {
+                $keycloakUser = request()->attributes->get('keycloak_user');
+                if ($keycloakUser && isset($keycloakUser['email'])) {
+                    $user = User::where('email', $keycloakUser['email'])->first();
+                    if ($user) {
+                        $secretaryId = $user->id;
+                    }
+                }
+            }
+
+            // Dernier fallback : récupérer le premier secrétaire
+            if (!$secretaryId) {
+                $secretaryId = User::where('role', 'secretaire')->orWhere('role', 'secretary')->first()?->id ?? 1;
+            }
+
+            $appointments = Appointment::with(['patient', 'slot.doctor.speciality', 'payments'])
+                ->where('created_by', $secretaryId)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data'    => $appointments
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper interne : Déclenchement d'une transaction FedaPay sur le téléphone du patient.
+     */
+    private function processDirectFedaPayPayment(Appointment $appointment, string $phoneNumber, string $mode): array
+    {
+        try {
+            FedaPay::setApiKey(config('services.fedapay.secret'));
+            FedaPay::setEnvironment(config('services.fedapay.environment', 'sandbox'));
+
+            $transaction = Transaction::create([
+                'description' => "Paiement RDV Medical #{$appointment->id}",
+                'amount'      => $appointment->amount_to_pay,
+                'currency'    => ['iso' => 'XOF'],
+                'callback_url' => route('payments.webhook'),
+                'customer'    => [
+                    'firstname'    => $appointment->patient->prenom,
+                    'lastname'     => $appointment->patient->nom,
+                    'email'        => $appointment->patient->email,
+                    'phone_number' => [
+                        'number'  => $phoneNumber,
+                        'country' => 'bj',
+                    ]
+                ]
+            ]);
+
+            $token = $transaction->generateToken();
+
+            Payment::create([
+                'appointment_id'         => $appointment->id,
+                'fedapay_transaction_id' => $transaction->id,
+                'reference'              => 'SEC-' . time() . '-' . $appointment->id,
+                'amount'                 => $appointment->amount_to_pay,
+                'status'                 => 'pending',
+                'payment_method'         => $mode,
+            ]);
+
+            return [
+                'transaction_id' => $transaction->id,
+                'payment_url'    => $token->url,
+                'status'         => 'pending',
+            ];
+        } catch (\Exception $e) {
+            Log::error("Erreur FedaPay Direct RDV #{$appointment->id}: " . $e->getMessage());
+            return [
+                'error' => $e->getMessage()
+            ];
         }
     }
 }
